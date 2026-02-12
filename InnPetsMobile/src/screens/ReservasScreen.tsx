@@ -6,6 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api from '../services/api';
+// 1. IMPORTAMOS EL ÍCONO
+import { Ionicons } from '@expo/vector-icons'; 
 
 const ReservasScreen = ({ navigation }: any) => {
   const [bookings, setBookings] = useState<any[]>([]);
@@ -13,16 +15,13 @@ const ReservasScreen = ({ navigation }: any) => {
   const [refreshing, setRefreshing] = useState(false);
   const [userRole, setUserRole] = useState<'PP' | 'IP' | null>(null);
 
-  // 👇 ESTA ES LA CORRECCIÓN CLAVE
   useFocusEffect(
     useCallback(() => {
-      // Al enfocar, activamos loading para asegurar refresco visual
       fetchBookings();
     }, [])
   );
 
   const fetchBookings = async () => {
-    // Si no estamos refrescando manualmente (pull-to-refresh), mostramos spinner
     if (!refreshing) setLoading(true);
 
     try {
@@ -44,6 +43,32 @@ const ReservasScreen = ({ navigation }: any) => {
   const onRefresh = () => {
     setRefreshing(true);
     fetchBookings();
+  };
+
+  // 2. LÓGICA PARA ELIMINAR (SOFT DELETE)
+  const handleDeleteBooking = (id: number) => {
+    Alert.alert(
+        "Eliminar del historial",
+        "¿Estás seguro? Esta reserva dejará de ser visible para ti. Esta acción no se puede deshacer.",
+        [
+            { text: "Cancelar", style: "cancel" },
+            { 
+                text: "Eliminar", 
+                style: "destructive", 
+                onPress: async () => {
+                    try {
+                        // Llamamos al endpoint DELETE que configuró tu compañero en el backend
+                        await api.delete(`/bookings/${id}/`);
+                        // Recargamos la lista para que desaparezca
+                        fetchBookings(); 
+                    } catch (error: any) {
+                        console.error(error);
+                        Alert.alert("Error", "No se pudo eliminar la reserva.");
+                    }
+                }
+            }
+        ]
+    );
   };
 
   const getStatusColor = (status: string) => {
@@ -75,9 +100,13 @@ const ReservasScreen = ({ navigation }: any) => {
     const counterpartName = userRole === 'IP' ? item.owner_name : item.provider_name;
     const counterpartLabel = userRole === 'IP' ? 'Cliente' : 'Cuidador';
 
+    // 3. VERIFICAR SI SE PUEDE BORRAR (Según la lógica del Backend)
+    const isDeletable = ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(item.status);
+
     return (
       <TouchableOpacity 
         style={styles.card}
+        activeOpacity={0.7}
         onPress={() => {
             navigation.navigate('BookingDetail', { 
                 booking: item,
@@ -87,18 +116,32 @@ const ReservasScreen = ({ navigation }: any) => {
       >
         <View style={styles.cardHeader}>
             <Text style={styles.serviceTitle}>{item.service_title}</Text>
-            <Text style={styles.price}>${item.total_price}</Text>
+            <Text style={styles.price}>${parseInt(item.total_price).toLocaleString('es-CL')}</Text>
         </View>
 
-        <Text style={styles.date}>📅 {item.start_date} ➔ {item.end_date}</Text>
+        <Text style={styles.date}>📅 {new Date(item.start_date).toLocaleDateString()} ➔ {new Date(item.end_date).toLocaleDateString()}</Text>
         <Text style={styles.counterpart}>
             {counterpartLabel}: <Text style={{fontFamily: FONTS.bold}}>{counterpartName}</Text>
         </Text>
 
-        <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
-            <Text style={[styles.statusText, { color: statusStyle.text }]}>
-                {getStatusLabel(item.status)}
-            </Text>
+        <View style={styles.footerRow}>
+            {/* Badge de Estado */}
+            <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                <Text style={[styles.statusText, { color: statusStyle.text }]}>
+                    {getStatusLabel(item.status)}
+                </Text>
+            </View>
+
+            {/* Icono de Basura (Solo si es borrable) */}
+            {isDeletable && (
+                <TouchableOpacity 
+                    style={styles.deleteBtn} 
+                    onPress={() => handleDeleteBooking(item.id)}
+                    hitSlop={{top: 10, bottom: 10, left: 10, right: 10}} // Facilita el touch
+                >
+                    <Ionicons name="trash-outline" size={22} color={COLORS.danger || '#F44336'} />
+                </TouchableOpacity>
+            )}
         </View>
       </TouchableOpacity>
     );
@@ -110,7 +153,6 @@ const ReservasScreen = ({ navigation }: any) => {
         <Text style={styles.title}>Mis Reservas</Text>
       </View>
 
-      {/* Aquí el spinner se mostrará brevemente al volver del detalle */}
       {loading && !refreshing ? (
         <ActivityIndicator size="large" color={COLORS.primary} style={{marginTop: 50}} />
       ) : (
@@ -142,8 +184,13 @@ const styles = StyleSheet.create({
   price: { fontSize: 16, fontFamily: FONTS.bold, color: COLORS.textDark },
   date: { color: COLORS.textLight, marginBottom: 5 },
   counterpart: { color: COLORS.textDark, marginBottom: 10 },
+  
+  // Estilos para la fila inferior (Badge + Basura)
+  footerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 },
   statusBadge: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   statusText: { fontFamily: FONTS.bold, fontSize: 12 },
+  deleteBtn: { padding: 5 },
+
   emptyState: { alignItems: 'center', marginTop: 100 },
   emptyText: { color: COLORS.textLight, marginTop: 10, fontFamily: FONTS.regular }
 });

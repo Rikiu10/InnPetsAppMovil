@@ -1,5 +1,16 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  StyleSheet, 
+  ActivityIndicator, 
+  Alert, 
+  KeyboardAvoidingView, 
+  ScrollView, 
+  Platform 
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
@@ -19,12 +30,36 @@ const LoginScreen = ({ navigation }: Props) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // 1. NUEVO: Estado para errores visuales
+  const [errors, setErrors] = useState<any>({});
+
+  // 2. NUEVO: Función para limpiar errores al escribir
+  const handleChange = (field: string, value: string) => {
+    if (field === 'email') setEmail(value);
+    if (field === 'password') setPassword(value);
+
+    // Si había un error en este campo, lo borramos visualmente
+    if (errors[field]) setErrors({ ...errors, [field]: null });
+    // Si había un error general (login fallido), lo borramos al intentar corregir
+    if (errors.detail) setErrors({ ...errors, detail: null });
+  };
+
+  // 3. NUEVO: Función de validación local
+  const validate = () => {
+    let valid = true;
+    let tempErrors: any = {};
+
+    if (!email) { tempErrors.email = 'Ingresa tu correo'; valid = false; }
+    if (!password) { tempErrors.password = 'Ingresa tu contraseña'; valid = false; }
+
+    setErrors(tempErrors);
+    return valid;
+  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Por favor ingresa email y contraseña');
-      return;
-    }
+    // A. Usamos la validación visual antes de llamar a la API
+    if (!validate()) return;
 
     setLoading(true);
     try {
@@ -53,12 +88,20 @@ const LoginScreen = ({ navigation }: Props) => {
             routes: [{ name: 'MainDrawer' }], 
           });
       } else {
-          Alert.alert("Error", "La respuesta del servidor no tiene token.");
+          // Este es un error raro de estructura, mantenemos alerta o error general
+          setErrors({ detail: "Error de servidor: No se recibió token." });
       }
 
     } catch (error: any) {
       console.error(error);
-      Alert.alert('Error', 'Credenciales incorrectas o fallo de conexión');
+      
+      // B. Manejo inteligente de errores del Backend (Django)
+      if (error.response?.data?.detail) {
+        // Django suele mandar "No active account found..." en 'detail'
+        setErrors({ detail: 'Correo o contraseña incorrectos.' });
+      } else {
+        Alert.alert('Error de Conexión', 'Verifica tu internet e inténtalo de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -66,12 +109,10 @@ const LoginScreen = ({ navigation }: Props) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* 1. KEYBOARD AVOIDING VIEW: Evita que el teclado tape todo */}
       <KeyboardAvoidingView 
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
-        {/* 2. SCROLLVIEW: Permite bajar si la pantalla es chica */}
         <ScrollView 
           contentContainerStyle={styles.scrollContent} 
           keyboardShouldPersistTaps="handled"
@@ -88,30 +129,44 @@ const LoginScreen = ({ navigation }: Props) => {
 
             {/* Formulario Card */}
             <View style={styles.card}>
+              
+              {/* INPUT EMAIL */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Email</Text>
                 <TextInput 
-                  style={styles.input}
+                  style={[styles.input, errors.email && styles.inputError]} // Borde rojo si hay error
                   placeholder="tu@email.com"
-                  placeholderTextColor="#999" // Para que se vea el placeholder
+                  placeholderTextColor="#999"
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(t) => handleChange('email', t)} // Usamos handleChange
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
+                {/* Mensaje de error debajo del input */}
+                {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
               </View>
 
+              {/* INPUT PASSWORD */}
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Contraseña</Text>
                 <TextInput 
-                  style={styles.input}
+                  style={[styles.input, errors.password && styles.inputError]} // Borde rojo si hay error
                   placeholder="••••••••"
-                  placeholderTextColor="#999" // Para que se vea el placeholder
+                  placeholderTextColor="#999"
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(t) => handleChange('password', t)} // Usamos handleChange
                   secureTextEntry
                 />
+                {/* Mensaje de error debajo del input */}
+                {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
               </View>
+
+              {/* MENSAJE DE ERROR GLOBAL (Credenciales incorrectas) */}
+              {errors.detail && (
+                <View style={styles.errorBox}>
+                    <Text style={styles.errorBoxText}>⚠️ {errors.detail}</Text>
+                </View>
+              )}
 
               <TouchableOpacity 
                 style={styles.button} 
@@ -143,19 +198,16 @@ const LoginScreen = ({ navigation }: Props) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  
-  // Nuevo estilo para centrar el ScrollView
   scrollContent: { flexGrow: 1, justifyContent: 'center' },
-  
-  content: { padding: 24 }, // Quitamos flex: 1 de aquí porque ahora lo maneja el ScrollView
+  content: { padding: 24 },
   header: { alignItems: 'center', marginBottom: 40 },
   logoText: { fontFamily: FONTS.bold, fontSize: 40, color: COLORS.primary },
   subtitle: { fontFamily: FONTS.regular, color: COLORS.textLight, marginTop: 8 },
   card: { backgroundColor: COLORS.white, padding: 24, borderRadius: 24, ...SHADOWS.card },
-  inputGroup: { marginBottom: 20 },
+  
+  inputGroup: { marginBottom: 15 }, // Reduje un poco para dar espacio a los mensajes de error
   label: { fontFamily: FONTS.semiBold, marginBottom: 8, color: COLORS.textDark },
   
-  // 👇 MODIFICADO: Agregamos color explícito negro y fondo blanco
   input: { 
     borderWidth: 1.5, 
     borderColor: COLORS.border, 
@@ -163,11 +215,34 @@ const styles = StyleSheet.create({
     padding: 14, 
     fontSize: 16, 
     fontFamily: FONTS.regular,
-    color: '#000000',      // IMPORTANTE: Texto negro
-    backgroundColor: '#ffffff' // IMPORTANTE: Fondo blanco
+    color: '#000000',
+    backgroundColor: '#ffffff'
   },
-  
-  button: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+
+  // ESTILOS NUEVOS DE ERROR
+  inputError: {
+    borderColor: COLORS.danger, // Rojo
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: 12,
+    marginTop: 5,
+    fontFamily: FONTS.regular
+  },
+  errorBox: {
+    backgroundColor: '#ffebee', // Rojo muy suave de fondo
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 15,
+    alignItems: 'center'
+  },
+  errorBoxText: {
+    color: COLORS.danger,
+    fontFamily: FONTS.bold,
+    fontSize: 14
+  },
+
+  button: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 5 },
   buttonText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
   footer: { marginTop: 20, flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
   footerText: { fontFamily: FONTS.regular, color: COLORS.textLight },

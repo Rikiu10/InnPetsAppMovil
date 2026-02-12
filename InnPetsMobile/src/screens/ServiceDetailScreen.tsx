@@ -5,9 +5,9 @@ import {
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
+import { SafeAreaView } from 'react-native-safe-area-context'; // Importante para el botón
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
-import api from '../services/api';
 
 type ServiceDetailRouteProp = RouteProp<RootStackParamList, 'ServiceDetail'>;
 type ServiceDetailNavProp = NativeStackNavigationProp<RootStackParamList, 'ServiceDetail'>;
@@ -21,38 +21,22 @@ const ServiceDetailScreen = ({ route, navigation }: Props) => {
   const { service } = route.params;
   const [loading, setLoading] = useState(false);
   
-  // 1. NUEVO ESTADO: Para esperar a saber quién es el usuario
+  // 1. Validación de Usuario (Tu lógica original intacta)
   const [checkingUser, setCheckingUser] = useState(true); 
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
-  // ESTADO PARA MASCOTAS
-  const [myPets, setMyPets] = useState<any[]>([]);
-  const [selectedPetId, setSelectedPetId] = useState<number | null>(null);
-
-  // Valores por defecto
+  // Valores visuales
   const bgColor = service.levelColor || COLORS.primary;
   const textColor = service.levelText || COLORS.white;
   const levelName = service.certification_level || 'Básica';
 
-  // Fechas
-  const today = new Date();
-  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-  const dayAfter = new Date(today); dayAfter.setDate(today.getDate() + 2);
-  const startDateStr = tomorrow.toISOString().split('T')[0];
-  const endDateStr = dayAfter.toISOString().split('T')[0];
-
-  // CARGAR DATOS INICIALES
   useEffect(() => {
     checkCurrentUser();
-    fetchMyPets();
   }, []);
 
-  // 2. FUNCIÓN MEJORADA: Espera a leer el storage antes de soltar la pantalla
   const checkCurrentUser = async () => {
     try {
       const userData = await AsyncStorage.getItem('user_data');
-      console.log("🔍 Usuario en Storage:", userData); // Debug
-
       if (userData) {
         const user = JSON.parse(userData);
         setCurrentUserId(user.id);
@@ -60,21 +44,10 @@ const ServiceDetailScreen = ({ route, navigation }: Props) => {
     } catch (error) {
       console.log("Error leyendo usuario", error);
     } finally {
-      // 👇 IMPORTANTE: Avisamos que ya terminamos de revisar
       setCheckingUser(false);
     }
   };
 
-  const fetchMyPets = async () => {
-    try {
-        const res = await api.get('/pets/');
-        setMyPets(res.data);
-    } catch (error) {
-        console.log("Error cargando mascotas", error);
-    }
-  };
-
-  // 3. LÓGICA DE VALIDACIÓN (La que ya funciona bien)
   const getProviderUserId = (provider: any) => {
     if (!provider) return null;
     if (typeof provider === 'number') return provider;
@@ -86,32 +59,19 @@ const ServiceDetailScreen = ({ route, navigation }: Props) => {
   };
 
   const providerUserId = getProviderUserId(service.provider);
-  
-  // Solo validamos si ya tenemos el ID del usuario cargado
   const isMyService = currentUserId !== null && providerUserId !== null && currentUserId === providerUserId;
 
-  // 4. FUNCIÓN DE RESERVA (Solo navegación)
+  // 2. Navegación Directa (Sin validación de mascota aquí)
   const handleBooking = () => {
-    // 1. Validamos que haya elegido mascota
-    if (!selectedPetId) {
-        Alert.alert("Selecciona una mascota", "Por favor indica qué mascota recibirá el servicio.");
-        return;
-    }
-
-    // 2. Navegamos a la pantalla de fechas
-    // Le pasamos el servicio Y la mascota seleccionada
     // @ts-ignore
-    navigation.navigate('CreateBookingScreen', { 
-        service: service,
-        petId: selectedPetId 
-    });
+    navigation.navigate('CreateBookingScreen', { service: service });
   };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       
-      {/* HEADER */}
+      {/* HEADER VISUAL (Intacto) */}
       <View style={[styles.heroContainer, { backgroundColor: bgColor }]}>
         <View style={styles.headerNav}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
@@ -140,44 +100,25 @@ const ServiceDetailScreen = ({ route, navigation }: Props) => {
           </View>
 
           <View style={styles.priceContainer}>
-            <Text style={styles.price}>${service.price}</Text>
+            <Text style={styles.price}>
+              {Number(service.price).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
+            </Text>
             <Text style={styles.priceLabel}> / servicio</Text>
           </View>
 
-
-          {/* SELECCIÓN DE MASCOTA */}
-          <Text style={styles.sectionTitle}>¿Para quién es el servicio?</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 20}}>
-            {myPets.length > 0 ? (
-                myPets.map((pet) => (
-                    <TouchableOpacity 
-                        key={pet.id} 
-                        style={[
-                            styles.petOption, 
-                            selectedPetId === pet.id && styles.petOptionSelected
-                        ]}
-                        onPress={() => setSelectedPetId(pet.id)}
-                    >
-                        <Text style={{fontSize: 24}}>🐶</Text>
-                        <Text style={[
-                            styles.petName, 
-                            selectedPetId === pet.id && styles.petNameSelected
-                        ]}>{pet.name}</Text>
-                    </TouchableOpacity>
-                ))
-            ) : (
-                <Text style={{color: COLORS.textLight, fontStyle: 'italic'}}>
-                    No tienes mascotas registradas.
-                </Text>
-            )}
-          </ScrollView>
+          {/* 3. SECCIÓN MASCOTA ELIMINADA: Ya no se pide aquí, se pide en el siguiente paso para evitar redundancia */}
 
           <Text style={styles.sectionTitle}>Sobre este servicio</Text>
           <Text style={styles.description}>
             {service.description || "Servicio profesional garantizado con los estándares de calidad InnPets."}
           </Text>
+          
+          <View style={styles.divider}/>
+          
+          <Text style={styles.sectionTitle}>Ubicación</Text>
+          <Text style={styles.description}>📍 {service.comuna || 'Santiago'}, {service.region || 'Región Metropolitana'}</Text>
 
-          {/* AVISO VISUAL SI ES PROPIO (Solo si ya terminamos de cargar) */}
+          {/* AVISO DE PROPIEDAD */}
           {!checkingUser && isMyService && (
             <View style={styles.warningBox}>
                 <Text style={styles.warningText}>⚠️ Este es tu propio servicio.</Text>
@@ -187,24 +128,18 @@ const ServiceDetailScreen = ({ route, navigation }: Props) => {
         </View>
       </ScrollView>
 
-      {/* 5. FOOTER PROTEGIDO */}
-      <View style={styles.footer}>
+      {/* 4. FOOTER FLOTANTE SEGURO */}
+      {/* Usamos un View absoluto pero con paddingBottom seguro para Android/iOS */}
+      <View style={styles.footerContainer}>
         {checkingUser ? (
-            // CASO A: Aún leyendo el ID... (Spinner)
             <ActivityIndicator color={COLORS.primary} />
         ) : isMyService ? (
-            // CASO B: Es mi servicio (Bloqueado)
             <View style={styles.btnDisabled}>
-                 <Text style={styles.btnTextDisabled}>🚫 No puedes reservar tu servicio</Text>
+                 <Text style={styles.btnTextDisabled}>🚫 Es tu servicio</Text>
             </View>
         ) : (
-            // CASO C: Todo OK (Botón habilitado)
             <TouchableOpacity style={styles.btnPrimary} onPress={handleBooking} disabled={loading}>
-              {loading ? (
-                 <ActivityIndicator color="#fff"/>
-              ) : (
-                 <Text style={styles.btnText}>Reservar Ahora</Text>
-              )}
+              <Text style={styles.btnText}>Reservar Ahora</Text>
             </TouchableOpacity>
         )}
       </View>
@@ -219,7 +154,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 18 },
   heroContent: { alignItems: 'center', justifyContent: 'center', marginTop: 20 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 100, marginTop: -30 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 120, marginTop: -30 }, // PaddingBottom grande para el footer
   card: { backgroundColor: COLORS.white, borderRadius: 20, padding: 20, ...SHADOWS.card },
   title: { fontFamily: FONTS.bold, fontSize: 22, color: COLORS.textDark, marginBottom: 10 },
   badgesRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
@@ -231,24 +166,24 @@ const styles = StyleSheet.create({
   priceLabel: { color: COLORS.textLight, marginBottom: 5 },
   sectionTitle: { fontFamily: FONTS.bold, fontSize: 16, marginBottom: 10, marginTop: 10 },
   description: { color: COLORS.textDark, lineHeight: 22, marginBottom: 15 },
-  infoSection: {backgroundColor: '#f5f5f5', padding: 10, borderRadius: 10, marginBottom: 15},
-  sectionLabel: {fontFamily: FONTS.bold, color: COLORS.textDark},
-  sectionValue: {color: COLORS.primary},
-  infoBox: { padding: 15, borderRadius: 12, marginTop: 15 },
-  infoTitle: { fontFamily: FONTS.bold, marginBottom: 5 },
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.border },
-  btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center' },
-  btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
-
-  // Estilos Mascota
-  petOption: { 
-    alignItems: 'center', padding: 10, borderRadius: 12, borderWidth: 1, borderColor: '#eee', 
-    marginRight: 10, width: 80, backgroundColor: '#fff' 
+  divider: { height: 1, backgroundColor: '#eee', marginVertical: 10 },
+  
+  // Footer Flotante
+  footerContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.white,
+    padding: 20,
+    paddingBottom: 30, // Extra padding para gestos de Android/iOS
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    elevation: 10
   },
-  petOptionSelected: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
-  petName: { fontSize: 12, marginTop: 5, color: COLORS.textLight },
-  petNameSelected: { color: COLORS.primary, fontFamily: FONTS.bold },
-
+  btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', ...SHADOWS.card },
+  btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
+  
   // Estilos de Validación
   warningBox: { backgroundColor: '#fff3cd', padding: 10, borderRadius: 8, marginTop: 10, marginBottom: 10, alignItems: 'center'},
   warningText: { color: '#856404', fontWeight: 'bold' },

@@ -8,6 +8,8 @@ import MainNavigator from './MainNavigator';
 import ProfileScreen from '../screens/ProfileScreen';
 import CustomDrawer from './CustomDrawer';
 import ReservasScreen from '../screens/ReservasScreen';
+// 👇 1. Importamos la pantalla de lista de chats
+import ChatListScreen from '../screens/ChatListScreen';
 
 const Drawer = createDrawerNavigator();
 
@@ -44,6 +46,16 @@ const DrawerNavigator = () => {
         options={{
           title: 'Mis Reservas',
           drawerIcon: ({color}) => <Text style={{fontSize: 20, color}}>📅</Text>
+        }}
+      />
+
+      {/* 👇 2. Agregamos la opción de Mensajes */}
+      <Drawer.Screen 
+        name="ChatList" 
+        component={ChatListScreen} 
+        options={{
+          title: 'Mis Mensajes',
+          drawerIcon: ({color}) => <Text style={{fontSize: 20, color}}>💬</Text>
         }}
       />
 

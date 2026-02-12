@@ -12,7 +12,8 @@ import { AuthProvider } from './src/context/AuthContext';
 // Imports de tus pantallas y navegación
 import LoginScreen from './src/screens/LoginScreen';
 import DrawerNavigator from './src/navigation/DrawerNavigator'; 
-
+import ChatListScreen from './src/screens/ChatListScreen';
+import ChatScreen from './src/screens/ChatScreen';
 import ServiceDetailScreen from './src/screens/ServiceDetailScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import BecomeProviderScreen from './src/screens/BecomeProviderScreen';
@@ -24,6 +25,9 @@ import CreateReviewScreen from './src/screens/CreateReviewScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 // 👇 1. AGREGAMOS EL IMPORT QUE FALTABA
 import CreateBookingScreen from './src/screens/CreateBookingScreen';
+import EditPetScreen from './src/screens/EditPetScreen';
+import EditServiceScreen from './src/screens/EditServiceScreen';
+import CreateTicketScreen from './src/screens/CreateTicketScreen';
 
 import { RootStackParamList } from './src/types';
 
@@ -79,7 +83,11 @@ export default function App() {
               {/* 👇 2. AGREGAMOS LAS PANTALLAS NUEVAS AQUÍ */}
               <Stack.Screen name="NotificationsScreen" component={NotificationsScreen} />
               <Stack.Screen name="CreateBookingScreen" component={CreateBookingScreen} />
-              
+              <Stack.Screen name="ChatList" component={ChatListScreen} />
+              <Stack.Screen name="ChatDetail" component={ChatScreen} />
+              <Stack.Screen name="EditPet" component={EditPetScreen} />
+              <Stack.Screen name="EditService" component={EditServiceScreen} />
+              <Stack.Screen name="CreateTicket" component={CreateTicketScreen} />
             </Stack.Navigator>
           </NavigationContainer>
 

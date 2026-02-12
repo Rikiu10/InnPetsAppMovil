@@ -4,42 +4,32 @@ import { DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawe
 import { useAuth } from '../context/AuthContext'; 
 import { COLORS, FONTS } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context'; 
+// 👇 Importamos iconos para que se vea bonito
+import { Ionicons } from '@expo/vector-icons'; 
 
 const CustomDrawer = (props: any) => {
-  // 👇 CONEXIÓN DIRECTA AL CEREBRO DE LA APP
   const { user, logout } = useAuth();
-  
-  // Medidas para no chocar con la barra de abajo en iPhones/Androids modernos
   const insets = useSafeAreaInsets(); 
   
   const defaultImage = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
-  // Lógica para intentar sacar la foto del perfil (si existe)
   const getPhotoUrl = () => {
     if (!user) return defaultImage;
-
-    // 1. Intentar foto de Proveedor
     const providerData = user.provider_profile?.photos_url;
     if (Array.isArray(providerData) && providerData.length > 0) return providerData[0];
     if (typeof providerData === 'string' && providerData) return providerData;
-
-    // 2. Intentar foto de Dueño
+    
     const parentData = user.pet_parent_profile?.photo_identification_url;
     if (Array.isArray(parentData) && parentData.length > 0) return parentData[0];
     if (typeof parentData === 'string' && parentData) return parentData;
 
-    // 3. Fallback
     return defaultImage;
   };
 
   const userPhoto = getPhotoUrl(); 
 
   const handleLogout = async () => {
-    // 1. Limpiamos todo el almacenamiento y el contexto
     await logout(); 
-    
-    // 2. Navegamos al Login forzosamente
-    // Usamos un pequeño delay para que la animación del menú cerrándose se vea bien
     setTimeout(() => {
         props.navigation.reset({
             index: 0,
@@ -48,31 +38,29 @@ const CustomDrawer = (props: any) => {
     }, 300);
   };
 
+  // 👇 Handler para ir a Ticket
+  const handleSupport = () => {
+      props.navigation.navigate('CreateTicket'); 
+      // Asegúrate de que 'CreateTicket' esté registrado en tu Stack Navigator principal
+  };
+
   return (
     <View style={{ flex: 1 }}>
       <DrawerContentScrollView 
         {...props} 
         contentContainerStyle={{ backgroundColor: COLORS.primary }}
       >
-        {/* CABECERA CON IMAGEN DE FONDO */}
+        {/* CABECERA */}
         <ImageBackground 
             source={{uri: 'https://img.freepik.com/free-vector/paw-print-background_1017-30882.jpg'}} 
             style={{padding: 20}}
             imageStyle={{opacity: 0.1}}
         >
             <View style={styles.profileContainer}>
-                {/* FOTO DE PERFIL */}
-                <Image 
-                    source={{ uri: userPhoto }} 
-                    style={styles.profileImage} 
-                />
-                
-                {/* NOMBRE REAL (Traído del Contexto) */}
+                <Image source={{ uri: userPhoto }} style={styles.profileImage} />
                 <Text style={styles.userName}>
                     {user ? `${user.first_name} ${user.last_name}` : 'Bienvenido'}
                 </Text>
-                
-                {/* ROL ACTUAL */}
                 <View style={styles.roleBadge}>
                     <Text style={styles.roleText}>
                         {user?.user_type === 'PP' ? '🐶 Dueño de Mascota' : '🛠️ Proveedor'}
@@ -81,21 +69,36 @@ const CustomDrawer = (props: any) => {
             </View>
         </ImageBackground>
 
-        {/* LISTA DE PANTALLAS (Fondo blanco) */}
+        {/* LISTA DE PANTALLAS */}
         <View style={{ flex: 1, backgroundColor: '#fff', paddingTop: 10 }}>
           <DrawerItemList {...props} />
+
+          {/* 👇 BOTÓN EXTRA: SOPORTE / TICKET */}
+          <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0' }}>
+              <TouchableOpacity 
+                  onPress={handleSupport} 
+                  style={{ flexDirection: 'row', alignItems: 'center', padding: 18 }}
+              >
+                  {/* Icono de salvavidas o ayuda */}
+                  <Ionicons name="help-buoy-outline" size={24} color={COLORS.textLight || '#666'} style={{ marginRight: 30 }} />
+                  <Text style={{ fontSize: 16, fontFamily: FONTS.regular, color: COLORS.textDark || '#333' }}>
+                      Soporte / Ayuda
+                  </Text>
+              </TouchableOpacity>
+          </View>
+
         </View>
       </DrawerContentScrollView>
 
-      {/* FOOTER (Botón Cerrar Sesión) */}
+      {/* FOOTER (Cerrar Sesión) */}
       <View style={{ 
           padding: 20, 
           borderTopWidth: 1, 
           borderTopColor: '#ccc',
-          paddingBottom: 20 + insets.bottom // Margen dinámico para seguridad
+          paddingBottom: 20 + insets.bottom 
       }}>
         <TouchableOpacity onPress={handleLogout} style={{flexDirection: 'row', alignItems: 'center'}}>
-          <Text style={{fontSize: 20, marginRight: 10}}>🚪</Text>
+          <Ionicons name="log-out-outline" size={24} color={COLORS.textDark} style={{ marginRight: 10 }} />
           <Text style={{fontSize: 16, fontFamily: FONTS.bold, color: COLORS.textDark}}>
             Cerrar Sesión
           </Text>

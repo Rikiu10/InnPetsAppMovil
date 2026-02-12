@@ -18,16 +18,31 @@ export interface Service {
   title: string;
   description: string;
   price: number;
-  category: string;
+  // Puede venir como 'category' o 'service_type' del backend
+  category?: string;     
+  service_type?: string; 
+  
   is_active: boolean;
+  
+  // Datos Visuales / Frontend
   certification_level?: 'Básica' | 'Intermedia' | 'Avanzada';
   icon?: string;
   levelColor?: string;
   levelText?: string;
-  average_rating?: number;
   
-  // 👇 AQUÍ ESTÁ EL CAMBIO: Agregamos el proveedor
-  // Lo ponemos como 'any' para que acepte tanto un Objeto como un ID (número)
+  // Estadísticas
+  average_rating?: number;
+  total_reviews?: number;
+
+  // 👇 AQUÍ AGREGAMOS LO QUE FALTABA (Ubicación)
+  region?: string;       // Texto simple (App)
+  comuna?: string;       // Texto simple (App)
+  region_name?: string;  // Relacional (Web)
+  commune_name?: string; // Relacional (Web)
+
+  // Imágenes
+  photos_url?: string[]; 
+
   provider: any; 
 }
 
@@ -41,20 +56,41 @@ export type MainTabParamList = {
 
 // 3. RootStack (Navegación Principal)
 export type RootStackParamList = {
+  // Autenticación
   Login: undefined;
-  MainTabs: NavigatorScreenParams<MainTabParamList>; 
-  ServiceDetail: { service: Service };
   Register: undefined;
+
+  // Navegación Principal
   MainDrawer: undefined;
-  EditProfile: undefined;
-  CreatePet: undefined;
   Main: NavigatorScreenParams<any>;
-  CreateBookingScreen: { service: any; petId: number };
-  // OJO: Actualicé esto también porque tu pantalla CreateReview recibe parámetros
+  MainTabs: NavigatorScreenParams<MainTabParamList>; 
+
+  // Perfil y Edición
+  EditProfile: undefined;
+  BecomeProvider: { user: { id: number } }; 
+  
+  // Edición
+  EditPet: { pet: any };           // Recibe la mascota completa para editar
+  EditService: { service: Service }; // Recibe el servicio completo para editar
+
+  // Mascotas y Servicios (Creación)
+  CreatePet: undefined;
+  CreateService: undefined;
+  ServiceDetail: { service: Service };
+
+  // Reservas
+  // 👇 CAMBIO IMPORTANTE: Ya no pedimos 'petId' aquí, solo el servicio.
+  CreateBookingScreen: { service: Service }; 
+  
+  BookingDetail: { booking: any; userRole: string };
   CreateReview: { bookingId: number; userRole: string }; 
   
-  BecomeProvider: { user: { id: number } }; 
-  CreateService: undefined;
-  BookingDetail: { booking: any; userRole: string };
+  // Otros
   NotificationsScreen: undefined;
+  
+  // Chat
+  ChatList: undefined; 
+  ChatDetail: { roomId: number; partnerName: string }; 
+
+  CreateTicket: undefined;
 };

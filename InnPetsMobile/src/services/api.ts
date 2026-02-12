@@ -82,10 +82,47 @@ export const authService = {
 };
 
 export const servicesService = {
+  // Obtener todos
   getAllServices: async (): Promise<Service[]> => {
     const response = await api.get<Service[]>('/services/');
     return response.data;
   },
+
+  // 👇 ESTA ES LA QUE FALTABA
+  updateService: async (id: number, data: any) => {
+    const response = await api.patch(`/services/${id}/`, data);
+    return response.data;
+  },
+
+  deleteService: async (id: number) => {
+    await api.delete(`/services/${id}/`);
+    return true;
+  }
+};
+
+export const petsService = {
+    updatePet: async (id: number, data: any) => {
+        // PUT o PATCH dependiendo de tu backend
+        const response = await api.patch(`/pets/${id}/`, data);
+        return response.data;
+    },
+
+    deletePet: async (id: number) => {
+        await api.delete(`/pets/${id}/`);
+        return true;
+    }
+};
+
+export const paymentService = {
+  createPreference: async (bookingId: number) => {
+    try {
+      const response = await api.post(`/payments/create_preference/${bookingId}/`);
+      return response.data; // Retorna { sandbox_init_point, pricing_details, ... }
+    } catch (error) {
+      console.error("Error creando preferencia de pago:", error);
+      throw error;
+    }
+  }
 };
 
 export default api;

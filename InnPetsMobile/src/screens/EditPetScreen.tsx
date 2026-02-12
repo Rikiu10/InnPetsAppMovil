@@ -18,19 +18,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker'; 
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
-import api from '../services/api';
+import api, { petsService } from '../services/api';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToCloudinary } from '../services/imageService';
+import { Ionicons } from '@expo/vector-icons';
 
-const CreatePetScreen = ({ navigation }: any) => {
-  const [mode, setMode] = useState<'CREATE' | 'LINK'>('CREATE');
-  const [loading, setLoading] = useState(false);
-  const [linkCode, setLinkCode] = useState('');
+const EditPetScreen = ({ route, navigation }: any) => {
+  // Recibimos la mascota a editar
+  const { pet } = route.params;
 
-  // 1. NUEVO: ESTADO DE ERRORES
+  const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<any>({});
 
-  // Datos de catálogos
+  // Catálogos
   const [loadingData, setLoadingData] = useState(true);
   const [speciesList, setSpeciesList] = useState<any[]>([]);
   const [breedsList, setBreedsList] = useState<any[]>([]);
@@ -40,12 +40,12 @@ const CreatePetScreen = ({ navigation }: any) => {
   const [showSpeciesModal, setShowSpeciesModal] = useState(false);
   const [showBreedModal, setShowBreedModal] = useState(false);
 
-  // Estados
+  // Estados de Fecha e Imagen
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateObject, setDateObject] = useState(new Date()); 
   const [localImageUri, setLocalImageUri] = useState<string | null>(null);
 
-  // Formulario
+  // Formulario completo
   const [form, setForm] = useState({
     name: '',
     selectedSpecies: null as any,
@@ -62,49 +62,114 @@ const CreatePetScreen = ({ navigation }: any) => {
     behaviorNotes: ''
   });
 
+  // 1. Cargar Catálogos y Pre-llenar datos
   useEffect(() => {
-    fetchCatalogs();
+    fetchCatalogsAndPreFill();
   }, []);
 
-  const fetchCatalogs = async () => {
+  const fetchCatalogsAndPreFill = async () => {
     try {
+      // A. Cargar listas
       const [speciesRes, breedsRes] = await Promise.all([
         api.get('/species/'),
         api.get('/breeds/')
       ]);
       setSpeciesList(speciesRes.data);
       setBreedsList(breedsRes.data);
+
+      // B. Lógica de Pre-llenado (Encontrar raza y especie actual)
+      let currentSpecies = null;
+      let currentBreed = null;
+
+      // Buscar Raza
+      if (pet.breed) {
+         // Si pet.breed ya viene como objeto completo
+         if (typeof pet.breed === 'object') {
+             currentBreed = pet.breed;
+         } 
+         // Si es solo un ID, lo buscamos en la lista que acabamos de bajar
+         else {
+             currentBreed = breedsRes.data.find((b: any) => b.id === pet.breed);
+         }
+      }
+
+      // Buscar Especie basada en la Raza
+      if (currentBreed) {
+          const speciesId = typeof currentBreed.species === 'object' ? currentBreed.species.id : currentBreed.species;
+          currentSpecies = speciesRes.data.find((s: any) => s.id === speciesId);
+          
+          // Filtrar razas para que el modal funcione bien si el usuario quiere cambiarla
+          const filtered = breedsRes.data.filter((b: any) => (typeof b.species === 'object' ? b.species.id : b.species) === speciesId);
+          setFilteredBreeds(filtered);
+      }
+
+      // Configurar Fecha Inicial
+      let initialDate = new Date();
+      if (pet.birth_date) {
+          // Agregamos hora para evitar problemas de zona horaria
+          initialDate = new Date(pet.birth_date + 'T00:00:00');
+      }
+
+      // C. Setear el Estado del Formulario
+      setForm({
+        name: pet.name || '',
+        selectedSpecies: currentSpecies,
+        selectedBreed: currentBreed,
+        weight: pet.characteristics?.weight_kg ? pet.characteristics.weight_kg.toString() : '',
+        color: pet.characteristics?.color || '',
+        medical_history: pet.medical_history || '',
+        birth_date: pet.birth_date || '', 
+        isFriendlyChildren: pet.is_friendly_children || false,
+        isFriendlyPets: pet.is_friendly_pets || false,
+        isEnergetic: pet.is_energetic || false,
+        isSterilized: pet.is_sterilized || false,
+        vaccinesUpToDate: pet.vaccines_up_to_date || false,
+        behaviorNotes: pet.behavior_notes || ''
+      });
+
+      setDateObject(initialDate);
+
+      // Setear Imagen si existe
+      if (pet.photos_url && pet.photos_url.length > 0) {
+          setLocalImageUri(pet.photos_url[0]);
+      }
+
     } catch (error) {
-      console.log("Error catálogos:", error);
+      console.log("Error cargando datos:", error);
+      Alert.alert("Error", "No se pudieron cargar los datos de la mascota.");
     } finally {
       setLoadingData(false);
     }
   };
 
-  // Helper para limpiar errores
   const clearError = (field: string) => {
       if (errors[field]) setErrors({ ...errors, [field]: null });
   };
 
+  // Manejo de selectores
   const handleSelectSpecies = (species: any) => {
     setForm({ ...form, selectedSpecies: species, selectedBreed: null });
-    const filtered = breedsList.filter(b => b.species === species.id || b.species.id === species.id);
+    const filtered = breedsList.filter(b => (typeof b.species === 'object' ? b.species.id : b.species) === species.id);
     setFilteredBreeds(filtered);
     setShowSpeciesModal(false);
-    clearError('species'); // Limpiar error
+    clearError('species');
   };
 
   const onChangeDate = (event: any, selectedDate?: Date) => {
     const currentDate = selectedDate || dateObject;
     setShowDatePicker(false);
     setDateObject(currentDate);
+    
+    // Formato YYYY-MM-DD
     const year = currentDate.getFullYear();
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
     const day = String(currentDate.getDate()).padStart(2, '0');
     const formattedDate = `${year}-${month}-${day}`;
+    
     setForm({ ...form, birth_date: formattedDate });
   };
 
+  // Manejo de Imagen
   const handleSelectImage = () => {
     Alert.alert(
       "Foto de la Mascota",
@@ -131,7 +196,7 @@ const CreatePetScreen = ({ navigation }: any) => {
     });
     if (!result.canceled) {
         setLocalImageUri(result.assets[0].uri);
-        clearError('image'); // Limpiar error
+        clearError('image');
     }
   };
 
@@ -149,16 +214,15 @@ const CreatePetScreen = ({ navigation }: any) => {
     });
     if (!result.canceled) {
         setLocalImageUri(result.assets[0].uri);
-        clearError('image'); // Limpiar error
+        clearError('image');
     }
   };
 
-  // 2. FUNCIÓN DE VALIDACIÓN
   const validate = () => {
     let valid = true;
     let temp: any = {};
 
-    if (!localImageUri) { temp.image = "Sube una foto de tu mascota"; valid = false; }
+    if (!localImageUri) { temp.image = "Foto requerida"; valid = false; }
     if (!form.name) { temp.name = "El nombre es obligatorio"; valid = false; }
     if (!form.selectedSpecies) { temp.species = "Selecciona especie"; valid = false; }
     if (!form.selectedBreed) { temp.breed = "Selecciona raza"; valid = false; }
@@ -172,16 +236,15 @@ const CreatePetScreen = ({ navigation }: any) => {
     return valid;
   };
 
-  // 💾 LOGICA CREAR
-  const handleCreate = async () => {
-    // 3. LLAMADA A LA VALIDACIÓN
+  const handleSave = async () => {
     if (!validate()) return;
 
-    setLoading(true);
+    setSaving(true);
     try {
-      // 1. Subir Imagen a Cloudinary
-      let uploadedUrl = "";
-      if (localImageUri) {
+      // 1. Subir imagen SOLO si es nueva (comienza con file:// o content://)
+      // Si empieza con http, es la que ya estaba en el servidor.
+      let uploadedUrl = localImageUri;
+      if (localImageUri && !localImageUri.startsWith('http')) {
          const url = await uploadImageToCloudinary(localImageUri);
          if (url) uploadedUrl = url;
       }
@@ -203,41 +266,22 @@ const CreatePetScreen = ({ navigation }: any) => {
         vaccines_up_to_date: form.vaccinesUpToDate,
         behavior_notes: form.behaviorNotes,
         
+        // El backend espera un array de fotos
         photos_url: uploadedUrl ? [uploadedUrl] : []
       };
 
-      // 3. Enviar al Backend
-      await api.post('/pets/', payload);
+      // 3. Actualizar
+      await petsService.updatePet(pet.id, payload);
       
-      Alert.alert("¡Éxito! 🐾", "Mascota registrada correctamente.", [
+      Alert.alert("¡Éxito!", "Mascota actualizada correctamente.", [
         { text: "OK", onPress: () => navigation.goBack() }
       ]);
 
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "No se pudo registrar la mascota.");
+      Alert.alert("Error", "No se pudo actualizar la mascota.");
     } finally {
-      setLoading(false);
-    }
-  };
-
-  // LOGICA VINCULAR
-  const handleLink = async () => {
-    if (!linkCode || linkCode.length < 4) { 
-        setErrors({ code: "El código debe tener al menos 4 caracteres" }); 
-        return; 
-    }
-    
-    setLoading(true);
-    try {
-        const res = await api.post('/pets/link-pet/', { code: linkCode });
-        Alert.alert("¡Vinculado!", res.data.message, [{ text: "Ver mis mascotas", onPress: () => navigation.navigate('Main', {screen: 'Perfil'}) }]);
-    } catch (error: any) {
-        // Mostramos el error del backend como error visual si es posible, o alerta
-        const msg = error.response?.data?.error || "Código no encontrado.";
-        setErrors({ code: msg });
-    } finally {
-        setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -259,6 +303,14 @@ const CreatePetScreen = ({ navigation }: any) => {
     </View>
   );
 
+  if (loadingData) {
+      return (
+          <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+          </View>
+      );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
         
@@ -267,18 +319,8 @@ const CreatePetScreen = ({ navigation }: any) => {
             <TouchableOpacity onPress={() => navigation.goBack()}>
                 <Text style={{fontSize: 24, color: '#000'}}>⬅️</Text>
             </TouchableOpacity>
-            <Text style={styles.title}>Gestionar Mascota</Text>
+            <Text style={styles.title}>Editar Mascota</Text>
             <View style={{width: 24}} /> 
-        </View>
-
-        {/* TABS */}
-        <View style={styles.tabContainer}>
-            <TouchableOpacity style={[styles.tab, mode === 'CREATE' && styles.activeTab]} onPress={() => {setMode('CREATE'); setErrors({});}}>
-                <Text style={[styles.tabText, mode === 'CREATE' && styles.activeTabText]}>Registrar Nueva</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.tab, mode === 'LINK' && styles.activeTab]} onPress={() => {setMode('LINK'); setErrors({});}}>
-                <Text style={[styles.tabText, mode === 'LINK' && styles.activeTabText]}>Vincular Código</Text>
-            </TouchableOpacity>
         </View>
 
         <KeyboardAvoidingView 
@@ -291,11 +333,9 @@ const CreatePetScreen = ({ navigation }: any) => {
                 showsVerticalScrollIndicator={false}
             >
                 
-                {mode === 'CREATE' ? (
                       <View style={styles.form}>
-                        <Text style={styles.sectionHelp}>Registra una mascota que no tiene perfil aún.</Text>
 
-                        {/* 📸 SECCIÓN DE FOTO */}
+                        {/* 📸 FOTO */}
                         <View style={{ alignItems: 'center', marginBottom: 10 }}>
                             <TouchableOpacity 
                                 onPress={handleSelectImage} 
@@ -421,38 +461,11 @@ const CreatePetScreen = ({ navigation }: any) => {
                             onChangeText={t=>setForm({...form, medical_history: t, behaviorNotes: t})}
                         />
 
-                        <TouchableOpacity style={styles.btnPrimary} onPress={handleCreate} disabled={loading}>
-                            {loading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>Guardar y Generar Código</Text>}
+                        <TouchableOpacity style={styles.btnPrimary} onPress={handleSave} disabled={saving}>
+                            {saving ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>Guardar Cambios</Text>}
                         </TouchableOpacity>
                       </View>
-                ) : (
-                      // MODO VINCULAR
-                      <View style={styles.linkContainer}>
-                        <Text style={{fontSize: 50, marginBottom: 20}}>🔗</Text>
-                        <Text style={styles.title}>¿Mascota compartida?</Text>
-                        <Text style={styles.subtitle}>Ingresa el código único de la mascota para gestionarla.</Text>
-                        
-                        <View style={{width: '100%'}}>
-                            <TextInput 
-                                style={[
-                                    styles.input, 
-                                    styles.codeInput,
-                                    errors.code && styles.inputError // Error en borde
-                                ]} 
-                                placeholder="EJ: X9J2K" 
-                                placeholderTextColor="#ccc" 
-                                autoCapitalize="characters" 
-                                value={linkCode} 
-                                onChangeText={(t) => { setLinkCode(t); clearError('code'); }}
-                            />
-                            {errors.code && <Text style={[styles.errorText, {textAlign: 'center'}]}>{errors.code}</Text>}
-                        </View>
-
-                        <TouchableOpacity style={styles.btnSecondary} onPress={handleLink} disabled={loading}>
-                            {loading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>Vincular Mascota</Text>}
-                        </TouchableOpacity>
-                      </View>
-                )}
+                
             </ScrollView>
         </KeyboardAvoidingView>
         
@@ -484,16 +497,8 @@ const CreatePetScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
-  tabContainer: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 10 },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: '#eee' },
-  activeTab: { borderBottomColor: COLORS.primary },
-  tabText: { fontFamily: FONTS.bold, color: '#ccc' },
-  activeTabText: { color: COLORS.primary },
   form: { gap: 15 },
-  linkContainer: { alignItems: 'center', marginTop: 40, padding: 20, backgroundColor: COLORS.white, borderRadius: 20, ...SHADOWS.card },
   title: { fontSize: 20, fontFamily: FONTS.bold, color: COLORS.textDark },
-  subtitle: { textAlign: 'center', color: COLORS.textLight, marginVertical: 15 },
-  sectionHelp: { color: COLORS.textLight, marginBottom: 10, fontSize: 13 },
   sectionTitle: { fontSize: 18, fontFamily: FONTS.bold, marginTop: 10, marginBottom: 5, color: COLORS.textDark },
   separator: { height: 1, backgroundColor: '#eee', marginVertical: 10 },
   label: { fontFamily: FONTS.bold, color: COLORS.textDark, marginBottom: 5 },
@@ -508,7 +513,6 @@ const styles = StyleSheet.create({
     color: '#000000' 
   },
   
-  // 🔴 ESTILOS DE ERROR
   inputError: {
     borderColor: COLORS.danger,
     borderWidth: 1
@@ -534,17 +538,7 @@ const styles = StyleSheet.create({
     flexDirection:'row', 
     justifyContent:'space-between' 
   },
-  codeInput: { 
-    textAlign: 'center', 
-    fontSize: 24, 
-    letterSpacing: 5, 
-    fontFamily: FONTS.bold, 
-    textTransform: 'uppercase', 
-    borderColor: COLORS.primary, 
-    borderWidth: 2,
-    color: '#000000'
-  },
-  
+
   imagePickerBtn: {
     width: 140,
     height: 140,
@@ -576,8 +570,8 @@ const styles = StyleSheet.create({
   switchLabel: { fontSize: 16, color: COLORS.textDark, flex: 1 },
 
   btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 20, width: '100%' },
-  btnSecondary: { backgroundColor: COLORS.secondary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 20, width: '100%' },
   btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
+  
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: 'white', borderRadius: 20, padding: 20, maxHeight: '70%' },
   modalTitle: { textAlign:'center', fontWeight:'bold', fontSize:18, marginBottom:10, color: '#000'},
@@ -587,4 +581,4 @@ const styles = StyleSheet.create({
   closeText: { color: COLORS.danger, fontFamily: FONTS.bold }
 });
 
-export default CreatePetScreen;
+export default EditPetScreen;

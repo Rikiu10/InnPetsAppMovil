@@ -6,7 +6,6 @@ interface AuthContextData {
   user: any;
   loading: boolean;
   isAuthenticated: boolean;
-  // 👇 CAMBIO: Ahora login acepta opcionalmente el objeto user para ser más rápido
   login: (token: string, userData?: any) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (user: any) => void; 
@@ -19,14 +18,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Al iniciar la App, buscamos si hay datos guardados
   useEffect(() => {
     loadStorageData();
   }, []);
 
   async function loadStorageData() {
     try {
-      // 👇 CORRECCIÓN 1: Usamos las mismas llaves que LoginScreen ('access_token')
       const storedToken = await AsyncStorage.getItem('access_token');
       const storedUser = await AsyncStorage.getItem('user_data');
 
@@ -34,10 +31,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         api.defaults.headers.Authorization = `Bearer ${storedToken}`;
         
         if (storedUser) {
-            // Si ya tenemos el usuario guardado, lo usamos directo (¡Más rápido!)
             setUser(JSON.parse(storedUser));
         } else {
-            // Solo si falta el usuario, lo pedimos a la API
             await refreshUser();
         }
       }
@@ -48,35 +43,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }
 
-  // 👇 CORRECCIÓN 2: Función Login optimizada
   async function login(token: string, userData?: any) {
-    // 1. Configurar API
     api.defaults.headers.Authorization = `Bearer ${token}`;
-    
-    // 2. Guardar Token (redundante si LoginScreen ya lo hizo, pero seguro)
     await AsyncStorage.setItem('access_token', token);
 
-    // 3. Actualizar Estado del Usuario
     if (userData) {
-        // Opción A: Nos pasaron el usuario (Ideal)
         setUser(userData);
         await AsyncStorage.setItem('user_data', JSON.stringify(userData));
     } else {
-        // Opción B: LoginScreen ya lo guardó en Storage, lo leemos de ahí
-        const storedUser = await AsyncStorage.getItem('user_data');
-        if (storedUser) {
-            setUser(JSON.parse(storedUser));
-        } else {
-            // Opción C: No está en ningún lado, lo pedimos a la API (Último recurso)
-            await refreshUser();
-        }
+        await refreshUser();
     }
   }
 
   async function logout() {
       try {
           setUser(null);
-          // 👇 Borramos las llaves correctas
           await AsyncStorage.removeItem('access_token');
           await AsyncStorage.removeItem('refresh_token'); 
           await AsyncStorage.removeItem('user_data');
@@ -88,14 +69,52 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   async function refreshUser() {
       try {
-          // Esta petición sigue siendo útil para actualizar datos
-          const response = await api.get('/users/');
-          // Manejo robusto de array vs objeto
-          const userData = Array.isArray(response.data) ? response.data[0] : response.data;
+          // 1. Intentamos obtener el ID del usuario guardado
+          const storedUser = await AsyncStorage.getItem('user_data');
+          let userId = null;
+          
+          if (storedUser) {
+              const parsed = JSON.parse(storedUser);
+              userId = parsed.id;
+          }
 
-          setUser(userData);
-          // Actualizamos el storage también
-          await AsyncStorage.setItem('user_data', JSON.stringify(userData));
+          // 2. CORRECCIÓN CRÍTICA:
+          // Si tenemos ID, pedimos ESE usuario. Si no, pedimos genérico (pero esto es riesgoso)
+          // La mayoría de ViewSets soportan /users/{id}/
+          
+          let response;
+          if (userId) {
+              // Pedimos específicamente a ESTE usuario
+              response = await api.get(`/users/${userId}/`);
+          } else {
+              // Si no tenemos ID, usamos el endpoint general (último recurso)
+              // OJO: Esto puede devolver una lista
+              response = await api.get('/users/');
+          }
+
+          // 3. Manejo inteligente de la respuesta
+          // Si pedimos por ID (/users/5/), devuelve un objeto directo.
+          // Si pedimos lista (/users/), devuelve array y buscamos filtrar o tomar el [0] (riesgo)
+          
+          let userData;
+          
+          if (Array.isArray(response.data)) {
+              // Si devolvió lista, intentamos encontrar el nuestro si tenemos ID, si no, tomamos el primero
+              if (userId) {
+                  userData = response.data.find((u: any) => u.id === userId) || response.data[0];
+              } else {
+                  userData = response.data[0];
+              }
+          } else {
+              // Si es objeto, es nuestro usuario
+              userData = response.data;
+          }
+
+          if (userData) {
+            setUser(userData);
+            await AsyncStorage.setItem('user_data', JSON.stringify(userData));
+          }
+
       } catch (error) {
           console.error("Error refrescando usuario", error);
       }
