@@ -22,16 +22,40 @@ import { REGIONES_CHILE } from '../constants/chile_data';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Register'>;
 
+// 👇 FUNCIÓN AUXILIAR PARA FORMATEAR RUT (12.345.678-9)
+const formatRut = (rut: string) => {
+  // 1. Dejar solo números y K
+  let value = rut.replace(/[^0-9kK]/g, '').toUpperCase();
+  
+  // 2. Si es muy corto, devolver tal cual
+  if (value.length <= 1) return value;
+  
+  // 3. Separar DV
+  const dv = value.slice(-1);
+  const cuerpo = value.slice(0, -1);
+  
+  // 4. Formatear cuerpo con puntos
+  const cuerpoFormateado = cuerpo.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  
+  return `${cuerpoFormateado}-${dv}`;
+};
+
 const RegisterScreen = ({ navigation }: Props) => {
   const [role, setRole] = useState<'PP' | 'IP'>('PP');
   const [loading, setLoading] = useState(false);
 
   // 1. ESTADO DEL FORMULARIO
   const [form, setForm] = useState({
-    first_name: '', last_name: '', email: '', password: '', confirmPassword: '', address: ''
+    first_name: '', 
+    last_name: '', 
+    rut: '', // 👈 NUEVO CAMPO
+    email: '', 
+    password: '', 
+    confirmPassword: '', 
+    address: ''
   });
 
-  // 2. NUEVO: ESTADO DE ERRORES (Para validaciones rojas)
+  // 2. ESTADO DE ERRORES
   const [errors, setErrors] = useState<any>({});
   
   // --- ESTADOS DE UBICACIÓN ---
@@ -42,7 +66,6 @@ const RegisterScreen = ({ navigation }: Props) => {
   const [showRegionModal, setShowRegionModal] = useState(false);
   const [showComunaModal, setShowComunaModal] = useState(false);
 
-  // Lógica: Al cambiar texto, borramos el error de ese campo si existe
   const handleChange = (field: string, value: string) => {
     setForm({ ...form, [field]: value });
     if (errors[field]) {
@@ -50,17 +73,26 @@ const RegisterScreen = ({ navigation }: Props) => {
     }
   };
 
+  // 👇 HANDLER ESPECIAL PARA RUT
+  const handleRutChange = (text: string) => {
+      const formatted = formatRut(text);
+      if (formatted.length <= 12) { // Limitar largo máximo
+          setForm({ ...form, rut: formatted });
+          if (errors.rut) setErrors({ ...errors, rut: null });
+      }
+  };
+
   const handleSelectRegion = (regionObj: any) => {
     setSelectedRegion(regionObj);
     setSelectedComuna(''); 
     setShowRegionModal(false);
-    if (errors.region) setErrors({ ...errors, region: null }); // Limpiar error
+    if (errors.region) setErrors({ ...errors, region: null });
   };
 
   const handleSelectComuna = (comuna: string) => {
     setSelectedComuna(comuna);
     setShowComunaModal(false);
-    if (errors.comuna) setErrors({ ...errors, comuna: null }); // Limpiar error
+    if (errors.comuna) setErrors({ ...errors, comuna: null });
   };
 
   // 3. FUNCIÓN DE VALIDACIÓN LOCAL
@@ -71,7 +103,10 @@ const RegisterScreen = ({ navigation }: Props) => {
     if (!form.first_name) { tempErrors.first_name = 'El nombre es obligatorio'; valid = false; }
     if (!form.last_name) { tempErrors.last_name = 'El apellido es obligatorio'; valid = false; }
     
-    // Validación básica de email
+    // 👇 VALIDACIÓN RUT
+    if (!form.rut) { tempErrors.rut = 'El RUT es obligatorio'; valid = false; }
+    else if (form.rut.length < 8) { tempErrors.rut = 'RUT incompleto'; valid = false; }
+
     const emailRegex = /\S+@\S+\.\S+/;
     if (!form.email) { tempErrors.email = 'El correo es obligatorio'; valid = false; }
     else if (!emailRegex.test(form.email)) { tempErrors.email = 'Ingresa un correo válido'; valid = false; }
@@ -92,11 +127,7 @@ const RegisterScreen = ({ navigation }: Props) => {
   };
 
   const handleRegister = async () => {
-    // A. Ejecutamos validación local primero
-    if (!validate()) {
-        // Si hay errores, no enviamos nada y mostramos los textos rojos
-        return;
-    }
+    if (!validate()) return;
 
     setLoading(true);
     try {
@@ -105,6 +136,7 @@ const RegisterScreen = ({ navigation }: Props) => {
         password: form.password,
         first_name: form.first_name,
         last_name: form.last_name,
+        identification_number: form.rut, // 👈 ENVIAMOS EL RUT AL BACKEND
         user_type: role,
         region: selectedRegion.region,
         comuna: selectedComuna,
@@ -122,17 +154,17 @@ const RegisterScreen = ({ navigation }: Props) => {
     } catch (error: any) {
       console.error(error);
       
-      // B. CAPTURA INTELIGENTE DE ERRORES DEL SERVER (Django)
       if (error.response?.data) {
         const serverErrors = error.response.data;
         let mappedErrors: any = {};
 
-        // Django suele devolver arrays: { "email": ["Este campo es único."] }
-        // Mapeamos esos errores a nuestro estado
         if (serverErrors.email) mappedErrors.email = serverErrors.email[0];
         if (serverErrors.password) mappedErrors.password = serverErrors.password[0];
         if (serverErrors.first_name) mappedErrors.first_name = serverErrors.first_name[0];
-        // Si hay un error genérico (detail)
+        
+        // 👇 MAPEO ERROR DE RUT DESDE BACKEND
+        if (serverErrors.identification_number) mappedErrors.rut = serverErrors.identification_number[0];
+
         if (serverErrors.detail) {
              Alert.alert("Error", serverErrors.detail);
         }
@@ -147,7 +179,6 @@ const RegisterScreen = ({ navigation }: Props) => {
     }
   };
 
-  // --- RENDERIZADO ---
   const renderRegionItem = ({ item }: any) => (
     <TouchableOpacity style={styles.modalItem} onPress={() => handleSelectRegion(item)}>
       <Text style={styles.modalItemText}>{item.region}</Text>
@@ -193,14 +224,13 @@ const RegisterScreen = ({ navigation }: Props) => {
             </TouchableOpacity>
           </View>
 
-          {/* FORMULARIO CON VALIDACIONES */}
+          {/* FORMULARIO */}
           <View style={styles.form}>
             
             {/* Nombre */}
             <View>
                 <TextInput 
                     placeholder="Nombre" placeholderTextColor="#999" 
-                    // Si hay error, borde rojo
                     style={[styles.input, errors.first_name && styles.inputError]} 
                     autoCapitalize="words"
                     onChangeText={(t) => handleChange('first_name', t)}
@@ -219,10 +249,35 @@ const RegisterScreen = ({ navigation }: Props) => {
                 {errors.last_name && <Text style={styles.errorText}>{errors.last_name}</Text>}
             </View>
 
-            {/* --- SECCIÓN UBICACIÓN 📍 --- */}
+            {/* 👇 INPUT DE RUT CORREGIDO */}
+            <View>
+                <Text style={styles.sectionLabel}>RUT</Text>
+                <TextInput 
+                    placeholder="Ej: 12.345.678-9" 
+                    placeholderTextColor="#999" 
+                    style={[styles.input, errors.rut && styles.inputError]} 
+                    value={form.rut}
+                    onChangeText={handleRutChange}
+                    
+                    // 🛑 PROPIEDADES ANTI-AUTOCOMPLETADO (Evitan el 204204)
+                    autoCorrect={false}             // Sin corrección ortográfica
+                    autoComplete="off"              // Sin sugerencias de Android
+                    spellCheck={false}              // Sin chequeo de ortografía
+                    textContentType="none"          // Sin tipo de contenido específico
+                    keyboardType="visible-password" // ⚠️ TRUCO ANDROID: Esto evita predicciones agresivas
+                    
+                    // Nota: 'visible-password' funciona perfecto en Android para esto, 
+                    // pero a veces oculta la 'K' en algunos teclados viejos. 
+                    // Si te pasa eso, cámbialo a "default" y mantén las otras props.
+                    
+                    autoCapitalize="characters"     // Para que la K sea mayúscula
+                />
+                {errors.rut && <Text style={styles.errorText}>{errors.rut}</Text>}
+            </View>
+
+            {/* --- SECCIÓN UBICACIÓN --- */}
             <Text style={styles.sectionLabel}>Ubicación</Text>
 
-            {/* Selector Región */}
             <View>
                 <TouchableOpacity 
                     style={[styles.selectBtn, errors.region && styles.inputError]} 
@@ -236,7 +291,6 @@ const RegisterScreen = ({ navigation }: Props) => {
                 {errors.region && <Text style={styles.errorText}>{errors.region}</Text>}
             </View>
 
-            {/* Selector Comuna */}
             <View>
                 <TouchableOpacity 
                     style={[
@@ -260,8 +314,7 @@ const RegisterScreen = ({ navigation }: Props) => {
                placeholderTextColor="#999" style={styles.input} autoCapitalize="words"
                onChangeText={(t) => handleChange('address', t)}
             />
-            {/* --------------------------- */}
-            
+
             {/* Email */}
             <View>
                 <TextInput 
@@ -363,22 +416,20 @@ const styles = StyleSheet.create({
     ...SHADOWS.card,
     color: '#000000',
     borderWidth: 1, 
-    borderColor: 'transparent' // Borde invisible por defecto
+    borderColor: 'transparent' 
   },
 
-  // ESTILO PARA INPUT CON ERROR
   inputError: {
-    borderColor: COLORS.danger, // Rojo
+    borderColor: COLORS.danger, 
     borderWidth: 1
   },
   
-  // ESTILO TEXTO DE ERROR
   errorText: {
     color: COLORS.danger,
     fontSize: 12,
     marginTop: 4,
     marginLeft: 5,
-    fontFamily: FONTS.regular // O la fuente que uses
+    fontFamily: FONTS.regular
   },
   
   sectionLabel: { fontFamily: FONTS.bold, color: COLORS.textDark, marginLeft: 5 },

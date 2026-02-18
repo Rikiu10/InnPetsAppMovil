@@ -1,50 +1,38 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert, Linking, StyleSheet } from 'react-native';
-import { COLORS, SHADOWS } from '../constants/theme';
-import { paymentService } from '../services/api'; // Asegúrate de tener este servicio creado
+import React from 'react';
+import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { SHADOWS } from '../constants/theme';
 
-const PaymentSection = ({ booking }: { booking: any }) => {
-  const [loading, setLoading] = useState(false);
+// Definimos qué datos espera recibir este componente
+interface Props {
+  booking: any;
+  onPayPress: () => void; // Función que viene del padre (BookingDetailScreen)
+  loading: boolean;       // Estado de carga que viene del padre
+}
 
-  const handlePay = async () => {
-    setLoading(true);
-    try {
-      // 1. Pedir link al backend
-      const data = await paymentService.createPreference(booking.id);
-      
-      // 2. Abrir Mercado Pago (Sandbox para pruebas)
-      if (data.sandbox_init_point) {
-          // Abrir navegador externo
-          const supported = await Linking.canOpenURL(data.sandbox_init_point);
-          if (supported) {
-            await Linking.openURL(data.sandbox_init_point);
-          } else {
-            Alert.alert("Error", "No se puede abrir el navegador.");
-          }
-      } else {
-          Alert.alert("Error", "No se recibió el link de pago.");
-      }
-    } catch (error) {
-      console.log(error);
-      Alert.alert("Error", "No se pudo iniciar el pago. Revisa que la reserva esté Aprobada.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
+const PaymentSection = ({ booking, onPayPress, loading }: Props) => {
+  
   return (
     <View style={styles.container}>
       <Text style={styles.title}>
         Detalle del Pago
       </Text>
       
+      {/* ⚠️ AJUSTE IMPORTANTE: 
+          Quitamos el "10%" fijo porque ahora tus tasas son dinámicas 
+          (pueden ser 15%, 20%, etc). Es mejor ser genérico.
+      */}
       <Text style={styles.disclaimer}>
-        * El total incluye una tarifa de servicio del 10% para cubrir costos de operación y seguridad.
+        * El total incluye la tarifa de servicio y seguridad de InnPets para proteger tu reserva.
       </Text>
 
+      <View style={styles.priceRow}>
+         <Text style={styles.label}>Total a Pagar:</Text>
+         <Text style={styles.price}>${booking.price_total || booking.total_price}</Text>
+      </View>
+
       <TouchableOpacity 
-        style={styles.payButton}
-        onPress={handlePay}
+        style={[styles.payButton, loading && styles.disabledBtn]}
+        onPress={onPayPress}
         disabled={loading}
       >
         {loading ? (
@@ -67,6 +55,7 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderWidth: 1,
         borderColor: '#BBDEFB',
+        marginBottom: 20, // Un poco de aire abajo
         ...SHADOWS.card
     },
     title: {
@@ -81,12 +70,30 @@ const styles = StyleSheet.create({
         marginBottom: 15,
         fontStyle: 'italic'
     },
+    priceRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 15,
+        alignItems: 'center'
+    },
+    label: {
+        fontSize: 16,
+        color: '#333'
+    },
+    price: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#0277BD'
+    },
     payButton: {
         backgroundColor: '#009EE3', // Azul Mercado Pago
         paddingVertical: 12,
         borderRadius: 8,
         alignItems: 'center',
         elevation: 2
+    },
+    disabledBtn: {
+        opacity: 0.7
     },
     payText: {
         color: 'white',

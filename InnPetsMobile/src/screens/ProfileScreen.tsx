@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'; // Agregamos useEffect
+import React, { useState, useCallback, useRef, useEffect } from 'react'; 
 import { 
   View, Text, TouchableOpacity, StyleSheet, Alert, 
   ActivityIndicator, ScrollView, FlatList, Image 
@@ -27,7 +27,6 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
   const [myPets, setMyPets] = useState<any[]>([]);
   
   const [certification, setCertification] = useState<any>(null);
-  // 👇 1. NUEVO ESTADO PARA EL NIVEL
   const [certLevel, setCertLevel] = useState<string | null>(null);
 
   const isMounted = useRef(true);
@@ -40,18 +39,34 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     }, [user?.user_type, user?.id]) 
   );
 
-  // 👇 2. EFECTO PARA CARGAR NIVEL AL INICIO
   useEffect(() => {
       fetchCertificationLevel();
   }, []);
 
+  // 👇 LÓGICA DE FOTO DINÁMICA
+  const getProfileImage = () => {
+      const defaultImage = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+      if (!user) return defaultImage;
+
+      // Prioridad según el rol activo
+      if (user.user_type === 'IP') {
+          const photos = user.provider_profile?.photos_url;
+          if (Array.isArray(photos) && photos.length > 0) return photos[0];
+      } else {
+          // Modo Dueño (PP)
+          if (user.pet_parent_profile?.photo_identification_url) {
+              return user.pet_parent_profile.photo_identification_url;
+          }
+      }
+      return defaultImage;
+  };
+
   const fetchCertificationLevel = async () => {
       try {
           const res = await api.get('/certifications/');
-          // Buscamos la aprobada
           const approved = res.data.find((c: any) => c.status === 'APPROVED');
           if (approved) {
-              setCertLevel(approved.level); // 'BASIC', 'INTERMEDIATE', 'ADVANCED'
+              setCertLevel(approved.level);
           } else {
               setCertLevel(null);
           }
@@ -60,18 +75,17 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
       }
   };
 
-  // 👇 3. COMPONENTE VISUAL DEL BADGE
   const getLevelBadge = () => {
       if (!certLevel) return null;
 
-      let color = COLORS.success; // Verde por defecto (BASIC / GREEN)
+      let color = COLORS.success; 
       let text = "Nivel Básico (Verde)";
 
       if (certLevel === 'INTERMEDIATE' || certLevel === 'YELLOW') {
-          color = '#F59E0B'; // Amarillo
+          color = '#F59E0B'; 
           text = "Nivel Intermedio (Amarillo)";
       } else if (certLevel === 'ADVANCED' || certLevel === 'RED') {
-          color = '#EF4444'; // Rojo
+          color = '#EF4444'; 
           text = "Nivel Avanzado (Rojo)";
       }
 
@@ -100,13 +114,10 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
       try {
          if(myServices.length === 0 && myPets.length === 0) setLoading(true);
 
-         // A) Buscar Certificación
          try {
              const certRes = await api.get('/certifications/');
              if (certRes.data && certRes.data.length > 0) {
-                 // Asumimos que la [0] es la más reciente
                  setCertification(certRes.data[0]);
-                 // Actualizamos también el nivel aquí por si acaso
                  if (certRes.data[0].status === 'APPROVED') {
                      setCertLevel(certRes.data[0].level);
                  }
@@ -120,7 +131,6 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
              setCertLevel(null);
          }
 
-         // B) Datos según rol
          if (user.user_type === 'IP') { 
             const servicesRes = await api.get('/services/');
             const mine = servicesRes.data.filter((s: any) => {
@@ -143,7 +153,6 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     if (!user) return;
 
     if (user.user_type === 'PP') { 
-        // Validamos estricto: Debe existir Y estar Aprobado
         if (certification && certification.status === 'APPROVED') {
              toggleRoleApi();
         } else {
@@ -180,9 +189,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     }
   };
 
-  // --- Lógica Nueva: Crear Servicio Seguro ---
   const handleCreateService = () => {
-      // 1. Si no tiene certificación o no está aprobada -> BLOQUEAR
       if (!certification || certification.status !== 'APPROVED') {
           Alert.alert(
               "Perfil en Revisión ⏳", 
@@ -190,18 +197,14 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
           );
           return;
       }
-      // 2. Si está aprobado -> PASAR
       navigation.navigate('CreateService');
   };
 
-  // --- Lógica Nueva: Click en Tarjeta de Estado ---
   const handleStatusCardClick = () => {
-      // Si está pendiente, SOLO mostramos alerta, no navegamos
       if (certification && certification.status === 'PENDING') {
           Alert.alert("Solicitud Enviada", "Tus documentos están siendo revisados. Te notificaremos cuando haya cambios.");
           return;
       }
-      // Si fue rechazada o no existe, permitimos ir a intentar de nuevo
       navigation.navigate('BecomeProvider');
   };
 
@@ -242,8 +245,6 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
           Alert.alert("Error", "No se pudo eliminar el elemento.");
       }
   };
-
-  // --- RENDERS ---
 
   const renderServiceItem = ({ item }: { item: any }) => {
     const imageUrl = Array.isArray(item.photos_url) && item.photos_url.length > 0 ? item.photos_url[0] : item.image;
@@ -420,11 +421,11 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                 </TouchableOpacity>
             </View>
             <View style={styles.avatarContainer}>
-                {user.profile_picture ? <Image source={{ uri: user.profile_picture }} style={{width: 90, height: 90, borderRadius: 45}} /> : <Text style={{fontSize: 40}}>{user.user_type === 'PP' ? '👤' : '🎓'}</Text>}
+                {/* 👇 AQUI USAMOS LA FOTO DINÁMICA */}
+                <Image source={{ uri: getProfileImage() }} style={{width: 90, height: 90, borderRadius: 45}} />
             </View>
             <Text style={styles.name}>{userName}</Text>
             
-            {/* 👇 4. AQUÍ SE MUESTRA EL BADGE DE NIVEL */}
             {user.user_type === 'IP' && getLevelBadge()}
 
             <View style={[styles.badge, { backgroundColor: user.user_type === 'PP' ? '#E8F5E9' : COLORS.primaryLight, marginTop: 10 }]}>

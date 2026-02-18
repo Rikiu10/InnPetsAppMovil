@@ -1,14 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import { 
   View, Text, FlatList, TouchableOpacity, StyleSheet, Image, 
-  ActivityIndicator, Alert // 👈 1. Importamos Alert
+  ActivityIndicator, Alert 
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import { chatService } from '../services/chatService';
 import { useAuth } from '../context/AuthContext';
-import { Ionicons } from '@expo/vector-icons'; // Para ícono de papelera opcional
 
 const ChatListScreen = ({ navigation }: any) => {
   const { user } = useAuth();
@@ -32,25 +31,23 @@ const ChatListScreen = ({ navigation }: any) => {
     }, [])
   );
 
-  // 👇 2. Función para manejar el borrado
   const handleDeleteChat = (roomId: number, partnerName: string) => {
     Alert.alert(
       "Eliminar Chat",
-      `¿Estás seguro que quieres eliminar la conversación con ${partnerName}? Esta acción no se puede deshacer.`,
+      `¿Eliminar conversación con ${partnerName}?`,
       [
         { text: "Cancelar", style: "cancel" },
         { 
           text: "Eliminar", 
-          style: "destructive", // Se ve rojo en iOS
+          style: "destructive", 
           onPress: async () => {
             try {
               setLoading(true);
               await chatService.deleteRoom(roomId);
-              // Recargamos la lista para que desaparezca
               await fetchRooms(); 
-              Alert.alert("Éxito", "Chat eliminado correctamente");
+              Alert.alert("Éxito", "Chat eliminado.");
             } catch (error) {
-              Alert.alert("Error", "No se pudo eliminar el chat. Intenta nuevamente.");
+              Alert.alert("Error", "No se pudo eliminar.");
               setLoading(false);
             }
           }
@@ -60,32 +57,31 @@ const ChatListScreen = ({ navigation }: any) => {
   };
 
   const renderItem = ({ item }: any) => {
-    // Lógica de identificación
     const isImOwner = user?.email === item.owner_email;
     const partnerName = isImOwner ? item.provider_name : item.owner_name;
     const rawPhoto = isImOwner ? item.provider_photo : item.owner_photo;
     const roleLabel = isImOwner ? "Cuidador" : "Dueño";
 
-    let avatarUrl = 'https://via.placeholder.com/100'; 
-    if (rawPhoto && typeof rawPhoto === 'string' && rawPhoto.startsWith('http')) {
-        avatarUrl = rawPhoto;
-    }
+    // ✅ LÓGICA DE FOTO MEJORADA
+    // Si rawPhoto es string válido, úsalo. Si no, usa placeholder.
+    const avatarSource = (rawPhoto && typeof rawPhoto === 'string' && rawPhoto.startsWith('http'))
+        ? { uri: rawPhoto }
+        : { uri: 'https://cdn-icons-png.flaticon.com/512/1077/1077114.png' }; // Icono de usuario genérico
 
     return (
       <TouchableOpacity 
         style={styles.card} 
         onPress={() => navigation.navigate('ChatDetail', { roomId: item.id, partnerName })}
-        // 👇 3. Agregamos el evento Long Press
         onLongPress={() => handleDeleteChat(item.id, partnerName)}
-        delayLongPress={500} // Medio segundo para activar
+        delayLongPress={500}
         activeOpacity={0.7}
       >
-        <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+        <Image source={avatarSource} style={styles.avatar} />
         
         <View style={styles.info}>
             <View style={{flexDirection:'row', justifyContent:'space-between'}}>
                 <Text style={styles.name}>
-                    {partnerName || "Usuario Desconocido"}
+                    {partnerName || "Usuario"}
                 </Text>
                 <Text style={styles.date}>
                     {item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}
@@ -93,7 +89,8 @@ const ChatListScreen = ({ navigation }: any) => {
             </View>
             <Text style={styles.service}>{item.service_title} • {roleLabel}</Text>
             <Text style={styles.lastMsg} numberOfLines={1}>
-                Mantén presionado para eliminar...
+                {/* Aquí podrías poner el último mensaje si el backend te lo manda */}
+                Toca para ver la conversación...
             </Text>
         </View>
       </TouchableOpacity>
@@ -126,7 +123,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   headerTitle: { fontSize: 28, fontFamily: FONTS.bold, color: COLORS.textDark, padding: 20, paddingBottom: 10 },
   card: { flexDirection: 'row', backgroundColor: COLORS.white, padding: 15, borderRadius: 16, marginBottom: 15, ...SHADOWS.card },
-  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#eee' },
+  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#f0f0f0' },
   info: { flex: 1, marginLeft: 15, justifyContent: 'center' },
   name: { fontFamily: FONTS.bold, fontSize: 16, color: COLORS.textDark },
   service: { fontFamily: FONTS.regular, fontSize: 12, color: COLORS.primary, marginBottom: 2 },

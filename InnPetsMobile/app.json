@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "innpets",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -28,11 +29,8 @@
     },
     "extra": {
       "eas": {
-        "projectId": "9a7e4fbf-2638-4da3-81b6-3b46da6d0590"
+        "projectId": "fa02fd68-9bf5-4fe1-9817-ada8c8c59e6e"
       }
-    },
-    "plugins": [
-      "@react-native-community/datetimepicker"
-    ]
+    }
   }
 }

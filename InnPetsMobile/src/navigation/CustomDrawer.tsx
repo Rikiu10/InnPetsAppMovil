@@ -4,7 +4,6 @@ import { DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawe
 import { useAuth } from '../context/AuthContext'; 
 import { COLORS, FONTS } from '../constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context'; 
-// 👇 Importamos iconos para que se vea bonito
 import { Ionicons } from '@expo/vector-icons'; 
 
 const CustomDrawer = (props: any) => {
@@ -13,16 +12,23 @@ const CustomDrawer = (props: any) => {
   
   const defaultImage = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
+  // Lógica para mostrar la foto SEGÚN EL ROL ACTIVO
   const getPhotoUrl = () => {
     if (!user) return defaultImage;
-    const providerData = user.provider_profile?.photos_url;
-    if (Array.isArray(providerData) && providerData.length > 0) return providerData[0];
-    if (typeof providerData === 'string' && providerData) return providerData;
-    
-    const parentData = user.pet_parent_profile?.photo_identification_url;
-    if (Array.isArray(parentData) && parentData.length > 0) return parentData[0];
-    if (typeof parentData === 'string' && parentData) return parentData;
 
+    // A. Si está en modo PROVEEDOR, mostramos foto de proveedor
+    if (user.user_type === 'IP') {
+        const photos = user.provider_profile?.photos_url;
+        if (Array.isArray(photos) && photos.length > 0) return photos[0];
+    }
+    
+    // B. Si está en modo DUEÑO, mostramos foto de dueño
+    if (user.user_type === 'PP') {
+        const photo = user.pet_parent_profile?.photo_identification_url;
+        if (photo) return photo;
+    }
+
+    // C. Si no hay foto específica, o falla algo, imagen por defecto
     return defaultImage;
   };
 
@@ -38,10 +44,8 @@ const CustomDrawer = (props: any) => {
     }, 300);
   };
 
-  // 👇 Handler para ir a Ticket
   const handleSupport = () => {
       props.navigation.navigate('CreateTicket'); 
-      // Asegúrate de que 'CreateTicket' esté registrado en tu Stack Navigator principal
   };
 
   return (
@@ -50,7 +54,6 @@ const CustomDrawer = (props: any) => {
         {...props} 
         contentContainerStyle={{ backgroundColor: COLORS.primary }}
       >
-        {/* CABECERA */}
         <ImageBackground 
             source={{uri: 'https://img.freepik.com/free-vector/paw-print-background_1017-30882.jpg'}} 
             style={{padding: 20}}
@@ -69,17 +72,14 @@ const CustomDrawer = (props: any) => {
             </View>
         </ImageBackground>
 
-        {/* LISTA DE PANTALLAS */}
         <View style={{ flex: 1, backgroundColor: '#fff', paddingTop: 10 }}>
           <DrawerItemList {...props} />
 
-          {/* 👇 BOTÓN EXTRA: SOPORTE / TICKET */}
           <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0' }}>
               <TouchableOpacity 
                   onPress={handleSupport} 
                   style={{ flexDirection: 'row', alignItems: 'center', padding: 18 }}
               >
-                  {/* Icono de salvavidas o ayuda */}
                   <Ionicons name="help-buoy-outline" size={24} color={COLORS.textLight || '#666'} style={{ marginRight: 30 }} />
                   <Text style={{ fontSize: 16, fontFamily: FONTS.regular, color: COLORS.textDark || '#333' }}>
                       Soporte / Ayuda
@@ -90,7 +90,6 @@ const CustomDrawer = (props: any) => {
         </View>
       </DrawerContentScrollView>
 
-      {/* FOOTER (Cerrar Sesión) */}
       <View style={{ 
           padding: 20, 
           borderTopWidth: 1, 

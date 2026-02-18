@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, TextInput, FlatList, Image, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, TextInput, Image, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
@@ -13,7 +13,7 @@ const CreateBookingScreen = ({ navigation, route }: any) => {
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState('');
   
-  // 🐶 ESTADO PARA MASCOTAS (Array de IDs)
+  // Mascotas
   const [myPets, setMyPets] = useState<any[]>([]);
   const [selectedPets, setSelectedPets] = useState<number[]>([]);
 
@@ -23,12 +23,21 @@ const CreateBookingScreen = ({ navigation, route }: any) => {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
+  // Estados para Desglose de Precio (Backend)
+  const [pricingDetails, setPricingDetails] = useState<any>(null);
+  const [calculatingPrice, setCalculatingPrice] = useState(false);
+
   const isNightlyService = service.service_type === 'BOARDING' || service.service_type === 'DAYCARE';
 
   // 1. CARGAR MASCOTAS AL INICIAR
   useEffect(() => {
       fetchMyPets();
   }, []);
+
+  // 2. CALCULAR PRECIO CUANDO CAMBIAN FECHAS O MASCOTAS
+  useEffect(() => {
+      calculateBackendPrice();
+  }, [selectedPets.length, startDate, endDate]);
 
   const fetchMyPets = async () => {
       try {
@@ -47,17 +56,43 @@ const CreateBookingScreen = ({ navigation, route }: any) => {
       }
   };
 
-  const calculateTotal = () => {
-    if (!isNightlyService) return service.price;
-    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-    let diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-    if (diffDays === 0) diffDays = 1; 
-    return service.price * diffDays;
+  // Función que llama a la API de Pagos
+  const calculateBackendPrice = async () => {
+      // Necesitamos al menos 1 mascota (o unidad) para calcular
+      // Si no hay mascotas seleccionadas, asumimos 1 para mostrar el precio base
+      const quantity = Math.max(1, selectedPets.length); 
+      
+      // Calcular días si es servicio por noche
+      let duration = 1;
+      if (isNightlyService) {
+          const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+          duration = diffDays === 0 ? 1 : diffDays;
+      }
+      
+      // La "cantidad" total es (Mascotas * Días) o solo Mascotas, depende de tu regla de negocio.
+      // Aquí asumiremos que el precio base se multiplica por la cantidad de "unidades de cobro"
+      // Si tu backend espera "cantidad de items", enviamos eso.
+      
+      // NOTA: Tu backend usa "quantity". Ajusta esto según tu lógica de negocio.
+      // Si cobras por mascota Y por día: quantity = mascotas * dias
+      const totalUnits = quantity * duration;
+
+      setCalculatingPrice(true);
+      try {
+          const res = await api.post('/payments/calculate/', {
+              price: parseFloat(service.price),
+              quantity: totalUnits,
+              category: service.service_type
+          });
+          setPricingDetails(res.data);
+      } catch (error) {
+          console.error("Error calculando precio", error);
+      } finally {
+          setCalculatingPrice(false);
+      }
   };
 
-  const total = calculateTotal();
-
-  // 🚀 LÓGICA DE RESERVA CON DEBUGGING
   const handleBooking = async () => {
     if (selectedPets.length === 0) {
         Alert.alert("Falta información", "Selecciona al menos una mascota.");
@@ -67,11 +102,13 @@ const CreateBookingScreen = ({ navigation, route }: any) => {
         Alert.alert("Fecha incorrecta", "La fecha de salida debe ser posterior a la de entrada.");
         return;
     }
+    if (!pricingDetails) {
+        Alert.alert("Error", "No se pudo calcular el precio. Intenta de nuevo.");
+        return;
+    }
 
     setLoading(true);
     try {
-        // CORRECCIÓN PARA BACKEND: Agregar hora a la fecha (ISO Completo)
-        // Esto ayuda a que Django DateTimeField no rechace el formato
         const startISO = startDate.toISOString().split('T')[0] + "T09:00:00"; 
         const endISO = (isNightlyService ? endDate : startDate).toISOString().split('T')[0] + "T18:00:00";
 
@@ -80,42 +117,20 @@ const CreateBookingScreen = ({ navigation, route }: any) => {
             pets: selectedPets, 
             start_date: startISO,
             end_date: endISO,
-            total_price: total,
+            total_price: pricingDetails.client_total_payment, // Enviamos el total calculado por backend
             notes: note
         };
 
-        console.log("📤 Enviando Reserva:", JSON.stringify(payload, null, 2));
-
         await api.post('/bookings/', payload);
 
-        Alert.alert("¡Reserva Solicitada! 🎉", "El cuidador ha sido notificado.", [
+        Alert.alert("¡Reserva Solicitada! 🎉", "El cuidador ha sido notificado. Deberás pagar cuando sea aceptada.", [
             { text: "Ver Reservas", onPress: () => navigation.navigate('MainDrawer', { screen: 'Reservas' }) }
         ]);
 
     } catch (error: any) {
         console.error("❌ Error al reservar:", error);
-        
-        // --- DEBUGGING MEJORADO ---
-        // Intentamos extraer el mensaje exacto del backend para mostrarlo en la Alerta
         let errorMsg = "No se pudo procesar la reserva.";
-        
-        if (error.response?.data) {
-            console.log("Data del error:", error.response.data);
-            const data = error.response.data;
-            
-            // Si el backend devuelve { "detail": "..." }
-            if (data.detail) errorMsg = data.detail;
-            // Si devuelve { "non_field_errors": ["..."] }
-            else if (data.non_field_errors) errorMsg = data.non_field_errors[0];
-            // Si devuelve errores por campo { "pets": ["..."] }
-            else {
-                // Tomamos el primer error que encontremos
-                const firstKey = Object.keys(data)[0];
-                const firstError = Array.isArray(data[firstKey]) ? data[firstKey][0] : data[firstKey];
-                errorMsg = `${firstKey}: ${firstError}`;
-            }
-        }
-        
+        if (error.response?.data?.detail) errorMsg = error.response.data.detail;
         Alert.alert("Error del Servidor", errorMsg);
     } finally {
         setLoading(false);
@@ -138,7 +153,6 @@ const CreateBookingScreen = ({ navigation, route }: any) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Teclado Offset Ajustado */}
       <KeyboardAvoidingView 
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 20}
@@ -209,15 +223,50 @@ const CreateBookingScreen = ({ navigation, route }: any) => {
         <Text style={styles.label}>Notas</Text>
         <TextInput style={styles.input} placeholder="Alergias, cuidados..." multiline numberOfLines={3} value={note} onChangeText={setNote} />
 
+        {/* ✅ TARJETA DE DESGLOSE FINANCIERO */}
+        <View style={styles.pricingCard}>
+            <Text style={styles.sectionTitle}>Resumen de Pago</Text>
+            
+            {calculatingPrice ? (
+                <ActivityIndicator color={COLORS.primary} />
+            ) : pricingDetails ? (
+                <>
+                    <View style={styles.row}>
+                        <Text style={styles.rowLabel}>Precio Neto:</Text>
+                        {/* Esto es precio base - comisión prov. No es lo que paga el cliente. */}
+                        {/* Mostramos el "Subtotal" mejor */}
+                        <Text style={styles.rowValue}>${pricingDetails.base_price}</Text>
+                    </View>
+                    
+                    <View style={styles.row}>
+                        <Text style={styles.rowLabel}>Comisión y Servicio ({pricingDetails.rate_percentage}%):</Text>
+                        {/* app_profit es la ganancia total (prov + user fee). Aquí mostramos el sobrecargo al cliente */}
+                        {/* El cliente paga base + (comision user). */}
+                        {/* Para simplificar al usuario final: Total - Base */}
+                        <Text style={styles.rowValue}>+ ${(pricingDetails.client_total_payment - pricingDetails.base_price).toFixed(0)}</Text>
+                    </View>
+
+                    <View style={styles.divider} />
+                    
+                    <View style={styles.rowTotal}>
+                        <Text style={styles.totalLabel}>Total a Pagar:</Text>
+                        <Text style={styles.totalValue}>
+                            ${pricingDetails.client_total_payment.toLocaleString('es-CL')}
+                        </Text>
+                    </View>
+                    
+                    <Text style={styles.disclaimer}>
+                        * Incluye tarifa de servicio InnPets.
+                    </Text>
+                </>
+            ) : (
+                <Text style={{textAlign:'center', color:'#999'}}>Selecciona mascotas para calcular.</Text>
+            )}
+        </View>
+
         {/* FOOTER */}
         <View style={styles.footer}>
-            <View style={{flexDirection:'row', justifyContent:'space-between', marginBottom: 15}}>
-                <Text style={styles.totalLabel}>Total a Pagar:</Text>
-                <Text style={styles.totalValue}>
-                    {Number(total).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
-                </Text>
-            </View>
-            <TouchableOpacity style={styles.btnPrimary} onPress={handleBooking} disabled={loading}>
+            <TouchableOpacity style={styles.btnPrimary} onPress={handleBooking} disabled={loading || calculatingPrice}>
                 {loading ? <ActivityIndicator color="#FFF"/> : <Text style={styles.btnText}>Confirmar Reserva</Text>}
             </TouchableOpacity>
         </View>
@@ -237,19 +286,29 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontFamily: FONTS.bold, marginBottom: 15, color: COLORS.textDark },
   label: { fontFamily: FONTS.bold, color: COLORS.textDark, marginBottom: 5 },
   
-  // Estilos de Mascotas
+  // Mascotas
   petCard: { padding: 10, backgroundColor: 'white', borderRadius: 12, marginRight: 10, alignItems: 'center', width: 85, borderWidth:1, borderColor:'#eee', position:'relative' },
   petCardSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   petName: { fontSize: 12, fontWeight: 'bold', marginTop: 5 },
-  avatar: { width: 40, height: 40, backgroundColor: '#f0f0f0', borderRadius: 20, justifyContent:'center', alignItems:'center' },
+  avatar: { width: 40, height: 40, backgroundColor: '#f0f0f0', borderRadius: 20, justifyContent:'center', alignItems:'center', overflow: 'hidden' },
   checkBadge: { position:'absolute', top:-5, right:-5, backgroundColor:'green', width:18, height:18, borderRadius:9, justifyContent:'center', alignItems:'center' },
 
   dateBtn: { backgroundColor: COLORS.white, padding: 15, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#eee' },
   dateText: { fontSize: 16 },
   input: { backgroundColor: COLORS.white, padding: 15, borderRadius: 10, borderWidth: 1, borderColor: '#eee', height: 80, textAlignVertical: 'top' },
-  footer: { marginTop: 30, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 20 },
-  totalLabel: { fontSize: 18, fontFamily: FONTS.bold },
-  totalValue: { fontSize: 22, fontFamily: FONTS.bold, color: COLORS.primary },
+  
+  // Estilos Desglose
+  pricingCard: { backgroundColor: '#F8F9FA', padding: 15, borderRadius: 12, marginVertical: 20, borderWidth: 1, borderColor: '#E9ECEF' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+  rowLabel: { color: '#666' },
+  rowValue: { fontWeight: '500' },
+  divider: { height: 1, backgroundColor: '#DDD', marginVertical: 10 },
+  rowTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  totalLabel: { fontFamily: FONTS.bold, fontSize: 18 },
+  totalValue: { fontFamily: FONTS.bold, fontSize: 22, color: COLORS.primary },
+  disclaimer: { fontSize: 10, color: '#999', marginTop: 10, fontStyle: 'italic', textAlign: 'center' },
+
+  footer: { marginTop: 10, paddingBottom: 20 },
   btnPrimary: { backgroundColor: COLORS.primary, padding: 18, borderRadius: 15, alignItems: 'center', ...SHADOWS.card },
   btnText: { color: 'white', fontFamily: FONTS.bold, fontSize: 18 },
 });

@@ -8,17 +8,16 @@ import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api from '../services/api'; 
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToCloudinary } from '../services/imageService';
-// Asegúrate de tener este archivo. Si no, avísame y te paso un array dummy.
 import { REGIONES_CHILE } from '../constants/chile_data'; 
 
 // === 1. CONFIGURACIÓN DE NIVELES Y REQUISITOS ===
 const SERVICE_REQUIREMENTS: Record<string, number> = {
-    'WALK': 1,        // Básico (Verde)
+    'WALK': 1,        // Básico
     'GROOMING': 1,    // Básico
     'TRAINING': 1,    // Básico
     'OTHER': 1,       // Básico
-    'DAYCARE': 2,     // Intermedio (Amarillo)
-    'BOARDING': 3,    // Avanzado (Rojo)
+    'DAYCARE': 2,     // Intermedio
+    'BOARDING': 3,    // Avanzado
     'VETERINARY': 3   // Avanzado
 };
 
@@ -39,10 +38,13 @@ const CreateServiceScreen = ({ navigation }: any) => {
   // Estado para saber el nivel del usuario
   const [userLevelValue, setUserLevelValue] = useState(0); 
   
-  // Estado de Errores (Tu lógica original recuperada)
+  // Estado de Errores
   const [errors, setErrors] = useState<any>({});
   
-  // Modales Geográficos (NECESARIOS para el backend)
+  // ✅ NUEVO: Estado para ganancia estimada (Transparencia)
+  const [estimatedEarnings, setEstimatedEarnings] = useState<string | null>(null);
+
+  // Modales Geográficos
   const [showRegionModal, setShowRegionModal] = useState(false);
   const [showComunaModal, setShowComunaModal] = useState(false);
   const [selectedRegionObj, setSelectedRegionObj] = useState<any>(null);
@@ -52,6 +54,7 @@ const CreateServiceScreen = ({ navigation }: any) => {
     description: '',
     price: '',
     category: 'WALK', 
+    charging_unit: 'PER_HOUR', // ✅ Default: Por Hora
     is_active: true,
     region: '',       
     commune: '',      
@@ -84,85 +87,99 @@ const CreateServiceScreen = ({ navigation }: any) => {
       }
   };
 
-  // Helper para limpiar error
   const clearError = (field: string) => {
      if (errors[field]) setErrors({ ...errors, [field]: null });
   };
 
+  // === 3. LÓGICA DE PRECIOS Y GANANCIA (NUEVO) ===
+  const calculateEarnings = async (priceVal: string, currentCategory?: string) => {
+      if (!priceVal || isNaN(parseFloat(priceVal))) {
+          setEstimatedEarnings(null);
+          return;
+      }
+      
+      // Usamos la categoría actual o la del estado
+      const catToSend = currentCategory || form.category;
+
+      try {
+          // Llamamos al nuevo endpoint del backend
+          const res = await api.post('/payments/calculate/', { 
+              price: parseFloat(priceVal), 
+              quantity: 1,
+              category: catToSend // Enviamos categoría para aplicar tasas específicas si existen
+          });
+          
+          // El backend devuelve "provider_payout" (monto neto para el proveedor)
+          const payout = res.data.provider_payout;
+          
+          // Formateamos a Peso Chileno
+          setEstimatedEarnings(payout.toLocaleString('es-CL'));
+      } catch (error) {
+          console.log("Error calculando ganancia:", error);
+      }
+  };
+
+  const handlePriceChange = (text: string) => {
+      setForm({...form, price: text});
+      clearError('price');
+      
+      // Calculamos solo si hay algo escrito (mayor a 2 dígitos para evitar spam)
+      if (text.length > 2) {
+          calculateEarnings(text);
+      } else {
+          setEstimatedEarnings(null);
+      }
+  };
+
+  // === IMAGEN ===
   const handleSelectImage = () => {
-    Alert.alert(
-      "Subir Foto del Servicio",
-      "Elige una opción",
-      [
+    Alert.alert("Subir Foto", "Elige una opción", [
         { text: "📷 Tomar Foto", onPress: openCamera },
         { text: "🖼️ Abrir Galería", onPress: openGallery },
         { text: "Cancelar", style: "cancel" },
-      ]
-    );
+    ]);
   };
 
   const openCamera = async () => {
     const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-    if (permissionResult.granted === false) {
-      Alert.alert("Permiso denegado", "Necesitas dar permiso para usar la cámara.");
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.7,
-    });
+    if (permissionResult.granted === false) return Alert.alert("Error", "Sin permisos de cámara");
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [4, 3], quality: 0.7 });
     if (!result.canceled) setImageUri(result.assets[0].uri);
   };
 
   const openGallery = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permissionResult.granted === false) {
-        Alert.alert("Permiso necesario", "Necesitamos acceso a tu galería.");
-        return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.7,
-    });
+    if (permissionResult.granted === false) return Alert.alert("Error", "Sin permisos de galería");
+    const result = await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [4, 3], quality: 0.7 });
     if (!result.canceled) setImageUri(result.assets[0].uri);
   };
 
-  // === 3. LÓGICA DE SELECCIÓN DE CATEGORÍA CON BLOQUEO ===
+  // === SELECCIÓN DE CATEGORÍA ===
   const handleCategorySelect = (catValue: string, catLabel: string) => {
       const requiredLevel = SERVICE_REQUIREMENTS[catValue] || 1;
 
       if (userLevelValue < requiredLevel) {
-          let msg = "Nivel Básico (Verde)";
-          if (requiredLevel === 2) msg = "Nivel Intermedio (Amarillo)";
-          if (requiredLevel === 3) msg = "Nivel Avanzado (Rojo)";
-
-          Alert.alert(
-              "🔒 Categoría Bloqueada",
-              `Para ofrecer servicios de "${catLabel}", necesitas tener una certificación de ${msg}.`
-          );
+          let msg = requiredLevel === 2 ? "Nivel Intermedio" : requiredLevel === 3 ? "Nivel Avanzado" : "Nivel Básico";
+          Alert.alert("🔒 Categoría Bloqueada", `Para "${catLabel}" necesitas certificación de ${msg}.`);
           return;
       }
       setForm({ ...form, category: catValue });
+      
+      // Si ya hay precio, recalculamos porque la tasa pudo cambiar según categoría
+      if (form.price.length > 2) {
+          calculateEarnings(form.price, catValue);
+      }
   };
 
-  // === VALIDACIÓN VISUAL (Tu lógica original) ===
+  // === VALIDACIÓN Y CREACIÓN ===
   const validate = () => {
       let valid = true;
       let temp: any = {};
-
       if (!form.title) { temp.title = "El título es obligatorio"; valid = false; }
       if (!form.description) { temp.description = "La descripción es obligatoria"; valid = false; }
-      
       if (!form.price) { temp.price = "Ingresa el precio"; valid = false; }
       else if (isNaN(parseFloat(form.price))) { temp.price = "Debe ser un número"; valid = false; }
-
-      // Validamos ubicación (CRUCIAL PARA BACKEND)
       if (!form.commune) { temp.commune = "Selecciona una comuna"; valid = false; }
-
       setErrors(temp);
       return valid;
   };
@@ -184,39 +201,31 @@ const CreateServiceScreen = ({ navigation }: any) => {
           price: parseFloat(form.price),
           service_type: form.category,
           is_active: form.is_active,
-          // Datos Geográficos (Corregido para tu Backend)
           region: form.region,
-          comuna: form.commune, // Tu modelo usa 'comuna' (texto)
+          comuna: form.commune,
           address_ref: form.address_ref,
-          photos_url: uploadedUrl ? [uploadedUrl] : [] 
+          photos_url: uploadedUrl ? [uploadedUrl] : [],
+          
+          // ✅ ENVIAMOS LA UNIDAD DE COBRO AL BACKEND
+          charging_unit: form.charging_unit 
       };
 
       await api.post('/services/', payload);
 
-      Alert.alert("¡Publicado! 🚀", "Tu servicio ya está visible con foto.", [
+      Alert.alert("¡Publicado! 🚀", "Tu servicio ya está visible.", [
         { text: "Volver al Perfil", onPress: () => navigation.goBack() }
       ]);
       
     } catch (error: any) {
       console.error("Error creating service:", error);
-      if (error.response?.data) {
-        const serverErrors = error.response.data;
-        if (serverErrors.detail) Alert.alert("Error", serverErrors.detail);
-        // Mostrar errores específicos si el backend devuelve un objeto de errores
-        else if (typeof serverErrors === 'object') {
-             const firstKey = Object.keys(serverErrors)[0];
-             Alert.alert("Error", `${firstKey}: ${serverErrors[firstKey]}`);
-        }
-        else Alert.alert("Error", "Revisa los datos ingresados.");
-      } else {
-        Alert.alert("Error", "No se pudo crear el servicio.");
-      }
+      if (error.response?.data?.detail) Alert.alert("Error", error.response.data.detail);
+      else Alert.alert("Error", "No se pudo crear el servicio.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Renderizadores de Items para Modales Geográficos
+  // Renders de Modales
   const renderRegionItem = ({ item }: any) => (
     <TouchableOpacity style={styles.modalItem} onPress={() => { 
         setForm({...form, region: item.region, commune: ''}); 
@@ -248,7 +257,6 @@ const CreateServiceScreen = ({ navigation }: any) => {
         <Text style={styles.subtitle}>Define qué ofreces y cuánto cobras.</Text>
       </View>
 
-      {/* AGREGADO: keyboardVerticalOffset para que el teclado no tape */}
       <KeyboardAvoidingView 
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
@@ -289,7 +297,7 @@ const CreateServiceScreen = ({ navigation }: any) => {
                 {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
             </View>
 
-            {/* CATEGORÍA CON VISUALIZACIÓN DE BLOQUEO */}
+            {/* CATEGORÍA */}
             <Text style={styles.label}>Tipo de Servicio</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 15 }}>
                 {CATEGORIES.map((cat) => {
@@ -318,21 +326,57 @@ const CreateServiceScreen = ({ navigation }: any) => {
                 })}
             </ScrollView>
 
+            {/* ✅ SELECTOR DE MODALIDAD DE COBRO (NUEVO) */}
+            <Text style={styles.label}>Modalidad de Cobro</Text>
+            <View style={{flexDirection:'row', gap: 10, marginBottom: 15}}>
+               <TouchableOpacity 
+                   style={[styles.catBadge, form.charging_unit === 'PER_HOUR' && {backgroundColor: COLORS.secondary}]}
+                   onPress={() => setForm({...form, charging_unit: 'PER_HOUR'})}
+               >
+                   <Text style={[styles.catText, form.charging_unit === 'PER_HOUR' && {color:'white', fontWeight:'bold'}]}>
+                       ⏱️ Por Hora
+                   </Text>
+               </TouchableOpacity>
+               
+               <TouchableOpacity 
+                   style={[styles.catBadge, form.charging_unit === 'PER_SERVICE' && {backgroundColor: COLORS.secondary}]}
+                   onPress={() => setForm({...form, charging_unit: 'PER_SERVICE'})}
+               >
+                   <Text style={[styles.catText, form.charging_unit === 'PER_SERVICE' && {color:'white', fontWeight:'bold'}]}>
+                       🏷️ Precio Fijo
+                   </Text>
+               </TouchableOpacity>
+            </View>
+
             {/* PRECIO */}
             <View>
-                <Text style={styles.label}>Precio (CLP)</Text>
+                <Text style={styles.label}>
+                    Precio ({form.charging_unit === 'PER_HOUR' ? '$/hora' : '$/servicio'})
+                </Text>
                 <TextInput 
                     style={[styles.input, errors.price && styles.inputError]} 
                     placeholder="Ej: 5000" 
                     keyboardType="numeric"
                     placeholderTextColor="#999"
                     value={form.price}
-                    onChangeText={(t) => { setForm({...form, price: t}); clearError('price'); }}
+                    onChangeText={handlePriceChange} // Usamos el nuevo handler con cálculo
                 />
                 {errors.price && <Text style={styles.errorText}>{errors.price}</Text>}
             </View>
 
-            {/* UBICACIÓN (NUEVO REQUERIDO) */}
+            {/* ✅ TARJETA DE TRANSPARENCIA (NUEVO) */}
+            {estimatedEarnings && (
+               <View style={styles.earningsCard}>
+                   <Text style={styles.earningsTitle}>💰 Ganancia Estimada</Text>
+                   <Text style={styles.earningsValue}>${estimatedEarnings} CLP</Text>
+                   <Text style={styles.earningsNote}>
+                       * El cliente cubre la mayor parte de la comisión (Modelo 1/3 - 2/3). 
+                       Este es el monto neto que recibirás.
+                   </Text>
+               </View>
+            )}
+
+            {/* UBICACIÓN */}
             <View>
                 <Text style={styles.label}>Ubicación del Servicio</Text>
                 
@@ -459,6 +503,33 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: 'white', borderRadius: 10, padding: 20, maxHeight: '70%' },
   modalItem: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#eee' },
   modalItemText: { fontSize: 16 },
+
+  // ✅ ESTILOS DE TRANSPARENCIA
+  earningsCard: { 
+      backgroundColor: '#E8F5E9', // Verde muy claro
+      padding: 15, 
+      borderRadius: 12, 
+      marginBottom: 15, 
+      borderWidth: 1, 
+      borderColor: '#C8E6C9' 
+  },
+  earningsTitle: { 
+      color: '#2E7D32', // Verde oscuro
+      fontWeight: 'bold', 
+      fontSize: 14, 
+      marginBottom: 5 
+  },
+  earningsValue: { 
+      color: '#1B5E20', // Verde más oscuro
+      fontWeight: 'bold', 
+      fontSize: 24 
+  },
+  earningsNote: { 
+      color: '#4caf50', 
+      fontSize: 11, 
+      marginTop: 5, 
+      fontStyle: 'italic' 
+  }
 });
 
 export default CreateServiceScreen;
