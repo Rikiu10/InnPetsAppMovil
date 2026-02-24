@@ -41,18 +41,30 @@ const NotificationsScreen = ({ navigation }: any) => {
     );
     setNotifications(updatedList);
 
-    // 2. Avisar al backend
+    // 2. Avisar al backend de forma asíncrona
     if (!item.is_read) {
-        try {
-            await notificationService.markAsRead(item.id);
-        } catch (error) { console.error(error); }
+        notificationService.markAsRead(item.id).catch(console.error);
     }
 
-    // 3. Navegar
-    if (item.notification_type === 'BOOKING' && item.related_object_id) {
-        navigation.navigate('BookingDetailScreen', { bookingId: item.related_object_id });
-    } else if (item.notification_type === 'REVIEW') {
-         navigation.navigate('Main', { screen: 'Perfil' });
+    // 3. 🚀 REDIRECCIONES (Igual que en las Push)
+    const type = item.notification_type;
+    const relatedId = item.related_object_id;
+
+    if (type === 'BOOKING' && relatedId) {
+        // En App.tsx lo llamamos 'BookingDetail' esperando un objeto 'booking'
+        navigation.navigate('BookingDetail', { booking: { id: relatedId } });
+    } 
+    else if ((type === 'CHAT' || type === 'MESSAGE') && relatedId) {
+        // Redirige al chat asumiendo que el ID es la roomId
+        navigation.navigate('ChatDetail', { 
+            roomId: relatedId,
+            partnerName: 'Chat', // Nombre temporal mientras carga
+            isSupport: false
+        });
+    } 
+    else if (type === 'REVIEW') {
+        // Redirige al perfil si hay reseña
+         navigation.navigate('MainDrawer', { screen: 'Perfil' }); 
     }
   };
 

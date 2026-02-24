@@ -8,7 +8,6 @@ import MainNavigator from './MainNavigator';
 import ProfileScreen from '../screens/ProfileScreen';
 import CustomDrawer from './CustomDrawer';
 import ReservasScreen from '../screens/ReservasScreen';
-// 👇 1. Importamos la pantalla de lista de chats
 import ChatListScreen from '../screens/ChatListScreen';
 
 const Drawer = createDrawerNavigator();
@@ -17,10 +16,7 @@ const DrawerNavigator = () => {
   return (
     <Drawer.Navigator
       id="DrawerNavigator" 
-      
-      // Menú lateral personalizado
       drawerContent={(props: any) => <CustomDrawer {...props} />}
-      
       screenOptions={{
         headerShown: false,
         drawerActiveBackgroundColor: COLORS.primaryLight,
@@ -30,16 +26,8 @@ const DrawerNavigator = () => {
         drawerLabelStyle: { marginLeft: 10, fontFamily: FONTS.semiBold, fontSize: 15 }
       }}
     >
-      <Drawer.Screen 
-        name="Inicio" 
-        component={MainNavigator} 
-      />
-
-      <Drawer.Screen 
-        name="Mi Perfil" 
-        component={ProfileScreen} 
-      />
-
+      <Drawer.Screen name="Inicio" component={MainNavigator} />
+      <Drawer.Screen name="Mi Perfil" component={ProfileScreen} />
       <Drawer.Screen 
         name="Reservas" 
         component={ReservasScreen} 
@@ -49,13 +37,23 @@ const DrawerNavigator = () => {
         }}
       />
 
-      {/* 👇 2. Agregamos la opción de Mensajes */}
       <Drawer.Screen 
         name="ChatList" 
         component={ChatListScreen} 
+        initialParams={{ mode: 'normal' }} // 👈 IMPORTANTE
         options={{
           title: 'Mis Mensajes',
           drawerIcon: ({color}) => <Text style={{fontSize: 20, color}}>💬</Text>
+        }}
+      />
+
+      {/* 👇 RUTA OCULTA DEL MENU (Se accede desde el CustomDrawer) */}
+      <Drawer.Screen 
+        name="SupportTickets" 
+        component={ChatListScreen} 
+        initialParams={{ mode: 'support' }} // 👈 IMPORTANTE
+        options={{
+          drawerItemStyle: { display: 'none' } // Oculta el botón duplicado estándar
         }}
       />
 

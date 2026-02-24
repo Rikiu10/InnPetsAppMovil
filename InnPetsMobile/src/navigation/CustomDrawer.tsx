@@ -12,23 +12,16 @@ const CustomDrawer = (props: any) => {
   
   const defaultImage = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
-  // Lógica para mostrar la foto SEGÚN EL ROL ACTIVO
   const getPhotoUrl = () => {
     if (!user) return defaultImage;
-
-    // A. Si está en modo PROVEEDOR, mostramos foto de proveedor
     if (user.user_type === 'IP') {
         const photos = user.provider_profile?.photos_url;
         if (Array.isArray(photos) && photos.length > 0) return photos[0];
     }
-    
-    // B. Si está en modo DUEÑO, mostramos foto de dueño
     if (user.user_type === 'PP') {
         const photo = user.pet_parent_profile?.photo_identification_url;
         if (photo) return photo;
     }
-
-    // C. Si no hay foto específica, o falla algo, imagen por defecto
     return defaultImage;
   };
 
@@ -45,7 +38,8 @@ const CustomDrawer = (props: any) => {
   };
 
   const handleSupport = () => {
-      props.navigation.navigate('CreateTicket'); 
+      // 👇 CAMBIO AQUÍ: Navega a la nueva ruta de Tickets
+      props.navigation.navigate('SupportTickets'); 
   };
 
   return (
@@ -91,10 +85,7 @@ const CustomDrawer = (props: any) => {
       </DrawerContentScrollView>
 
       <View style={{ 
-          padding: 20, 
-          borderTopWidth: 1, 
-          borderTopColor: '#ccc',
-          paddingBottom: 20 + insets.bottom 
+          padding: 20, borderTopWidth: 1, borderTopColor: '#ccc', paddingBottom: 20 + insets.bottom 
       }}>
         <TouchableOpacity onPress={handleLogout} style={{flexDirection: 'row', alignItems: 'center'}}>
           <Ionicons name="log-out-outline" size={24} color={COLORS.textDark} style={{ marginRight: 10 }} />

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "207029465147",
+    "project_id": "innpetstest",
+    "storage_bucket": "innpetstest.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:207029465147:android:36df55287230429bd52c1e",
+        "android_client_info": {
+          "package_name": "com.anonymous.InnPetsMobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4c0r8v046VFMSiGrF9H4pmjanv48hZbQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

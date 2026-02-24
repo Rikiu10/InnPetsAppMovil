@@ -1,18 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, FlatList, 
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image, Modal, Linking 
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, FONTS } from '../constants/theme';
+import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import { chatService } from '../services/chatService';
+import api from '../services/api'; 
 import { Ionicons } from '@expo/vector-icons'; 
 
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 
 const ChatScreen = ({ route, navigation }: any) => {
-  const { roomId, partnerName } = route.params || {};
+  const { roomId, partnerName, isSupport: paramIsSupport } = route.params || {}; 
   const insets = useSafeAreaInsets();
   
   const [messages, setMessages] = useState<any[]>([]);
@@ -20,7 +21,14 @@ const ChatScreen = ({ route, navigation }: any) => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   
+  // ESTADO PARA CONTROLAR SI ES SOPORTE
+  const [isSupportRoom, setIsSupportRoom] = useState(paramIsSupport || false);
+  // 🔥 NUEVO ESTADO: Para saber si el ticket está cerrado
+  const [isClosed, setIsClosed] = useState(false);
+
+  // Estados para Archivos
   const [attachment, setAttachment] = useState<any>(null); 
+  const [customFileName, setCustomFileName] = useState(''); 
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
@@ -28,6 +36,30 @@ const ChatScreen = ({ route, navigation }: any) => {
   useEffect(() => {
     if (!roomId) { navigation.goBack(); }
   }, [roomId]);
+
+  // ✅ VERIFICAR ESTADO REAL DE LA SALA (Tipo y Status)
+  const fetchRoomDetails = useCallback(async () => {
+      try {
+          const response = await api.get(`/chat-rooms/${roomId}/`);
+          if (response.data) {
+              // Verificamos si es soporte
+              if (response.data.room_type === 'SUPPORT') {
+                  setIsSupportRoom(true);
+              }
+              // 🔥 Verificamos si está cerrado
+              if (response.data.status === 'CLOSED' || response.data.is_active === false) {
+                  setIsClosed(true);
+              }
+          }
+      } catch (error) {
+          console.log("No se pudo verificar detalles de la sala.");
+      }
+  }, [roomId]);
+
+  useEffect(() => {
+      fetchRoomDetails();
+  }, [fetchRoomDetails]);
+
 
   const fetchMessages = async () => {
     if (!roomId) return;
@@ -40,9 +72,12 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   useEffect(() => {
     fetchMessages(); 
-    const interval = setInterval(fetchMessages, 3000); 
-    return () => clearInterval(interval);
-  }, [roomId]);
+    // Solo hacemos polling si NO está cerrado
+    if (!isClosed) {
+        const interval = setInterval(fetchMessages, 3000); 
+        return () => clearInterval(interval);
+    }
+  }, [roomId, isClosed]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -50,29 +85,63 @@ const ChatScreen = ({ route, navigation }: any) => {
     }
   }, [messages]);
 
-  // --- LÓGICA DE SELECCIÓN ---
+  // 👇 FUNCIÓN CERRAR TICKET (YA CORREGIDA LA URL)
+  const handleCloseTicket = () => {
+    Alert.alert(
+      "Cerrar Ticket",
+      "¿Estás seguro? Ya no podrás enviar mensajes en este ticket.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { 
+          text: "Sí, Finalizar", 
+          style: "destructive", 
+          onPress: async () => {
+            try {
+              setLoading(true);
+              // URL CORRECTA
+              await api.patch(`/chat-rooms/${roomId}/`, { 
+                  status: 'CLOSED' 
+              });
+              
+              Alert.alert("Éxito", "El ticket ha sido marcado como resuelto.");
+              // 🔥 ACTUALIZAMOS EL ESTADO LOCAL INMEDIATAMENTE
+              setIsClosed(true);
+              setLoading(false);
+              // Opcional: Volver atrás
+              // navigation.goBack(); 
+            } catch (error) {
+              console.error(error);
+              Alert.alert("Error", "No se pudo cerrar el ticket.");
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
+  // --- SELECCIÓN DE ARCHIVOS (SIN CAMBIOS) ---
   const openCamera = async () => {
       setShowAttachMenu(false);
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) return Alert.alert("Permiso denegado");
-      
       const result = await ImagePicker.launchCameraAsync({ quality: 0.5, allowsEditing: true });
       if (!result.canceled) {
           const asset = result.assets[0];
-          setAttachment({ uri: asset.uri, name: `foto_${Date.now()}.jpg`, mimeType: 'image/jpeg', type: 'image' });
+          setAttachment({ uri: asset.uri, mimeType: 'image/jpeg', type: 'image', name: `foto_${Date.now()}.jpg` });
+          setCustomFileName(`foto_${Date.now()}.jpg`);
       }
   };
 
   const openGallery = async () => {
       setShowAttachMenu(false);
-      const result = await ImagePicker.launchImageLibraryAsync({ 
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          quality: 0.5,
-      });
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 0.5 });
       if (!result.canceled) {
           const asset = result.assets[0];
-          setAttachment({ uri: asset.uri, name: asset.fileName || 'imagen.jpg', mimeType: 'image/jpeg', type: 'image' });
+          const name = asset.fileName || `imagen_${Date.now()}.jpg`;
+          const type = asset.type === 'video' ? 'video' : 'image';
+          setAttachment({ uri: asset.uri, mimeType: asset.mimeType || 'image/jpeg', type, name: name });
+          setCustomFileName(name);
       }
   };
 
@@ -80,20 +149,33 @@ const ChatScreen = ({ route, navigation }: any) => {
       setShowAttachMenu(false);
       try {
           const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
-          if (!result.canceled) {
+          if (!result.canceled && result.assets) {
               const asset = result.assets[0];
-              setAttachment({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, type: 'file' });
+              setAttachment({ uri: asset.uri, mimeType: asset.mimeType, type: 'file', name: asset.name });
+              setCustomFileName(asset.name);
           }
       } catch (err) { console.log(err); }
   };
 
+  // --- ENVÍO DE MENSAJE ---
   const handleSend = async () => {
+    // 🔥 BLOQUEO ADICIONAL POR SEGURIDAD
+    if (isClosed) return;
     if (!text.trim() && !attachment) return; 
+    
     setSending(true);
     try {
-      await chatService.sendMessage(roomId, text, attachment);
+      let attachmentToSend = null;
+      if (attachment) {
+          attachmentToSend = {
+              ...attachment,
+              name: customFileName.trim() ? customFileName : attachment.name
+          };
+      }
+      await chatService.sendMessage(roomId, text, attachmentToSend); 
       setText('');
       setAttachment(null); 
+      setCustomFileName('');
       await fetchMessages(); 
     } catch (error) {
       Alert.alert("Error", "No se pudo enviar el mensaje");
@@ -111,24 +193,22 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   const renderMessage = ({ item }: any) => {
     const isMe = item.is_me; 
-    
-    // 🔥 CAMBIO 3: Buscamos la URL en AMBOS campos (attachment O attachment_url)
     const attachmentUrl = item.attachment || item.attachment_url;
     
-    // Validación más robusta para saber si es imagen
+    let displayName = item.sender_name || partnerName;
+    if (isSupportRoom && !isMe) {
+        displayName = "🛡️ Soporte InnPets";
+    }
+
     const isImage = attachmentUrl && (
-        attachmentUrl.includes('.jpg') || 
-        attachmentUrl.includes('.png') || 
-        attachmentUrl.includes('.jpeg') ||
-        attachmentUrl.includes('.gif') ||
-        attachmentUrl.includes('cloudinary') // A veces cloudinary no trae extensión clara
+        attachmentUrl.includes('jpg') || attachmentUrl.includes('png') || attachmentUrl.includes('jpeg') || attachmentUrl.includes('cloudinary')
     );
 
     return (
-      <View style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '75%', marginBottom: 10 }}>
+      <View style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '80%', marginBottom: 15 }}>
+        {!isMe && <Text style={{fontSize: 10, color: '#888', marginBottom: 2, marginLeft: 10}}>{displayName}</Text>}
+        
         <View style={[styles.msgBubble, isMe ? styles.msgMe : styles.msgOther]}>
-            
-            {/* 🖼 RENDERIZAR ADJUNTO SI EXISTE */}
             {attachmentUrl && (
                 <TouchableOpacity onPress={() => openLink(attachmentUrl)} style={{marginBottom: 5}}>
                     {isImage ? (
@@ -141,11 +221,8 @@ const ChatScreen = ({ route, navigation }: any) => {
                     )}
                 </TouchableOpacity>
             )}
-
             {item.content ? (
-                <Text style={[styles.msgText, { color: isMe ? '#FFF' : COLORS.textDark }]}>
-                    {item.content} 
-                </Text>
+                <Text style={[styles.msgText, { color: isMe ? '#FFF' : COLORS.textDark }]}>{item.content}</Text>
             ) : null}
         </View>
         <Text style={[styles.msgTime, { textAlign: isMe ? 'right' : 'left' }]}>
@@ -158,15 +235,29 @@ const ChatScreen = ({ route, navigation }: any) => {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       
-      {/* HEADER */}
+      {/* HEADER DINÁMICO */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={28} color={COLORS.primary} />
         </TouchableOpacity>
-        <View>
-            <Text style={styles.headerTitle}>{partnerName}</Text>
-            <Text style={styles.headerSubtitle}>En línea</Text>
+        
+        <View style={{flex: 1}}>
+            <Text style={styles.headerTitle}>
+                {isSupportRoom ? "🛡️ Soporte InnPets" : partnerName}
+            </Text>
+            <Text style={styles.headerSubtitle}>
+                {/* 🔥 MUESTRA EL ESTADO REAL */}
+                {isClosed ? "Ticket Cerrado 🔒" : (isSupportRoom ? "Ticket Abierto" : "En línea")}
+            </Text>
         </View>
+
+        {/* 👇 BOTÓN VISIBLE SOLO EN SOPORTE Y SI NO ESTÁ CERRADO */}
+        {isSupportRoom && !isClosed && (
+            <TouchableOpacity onPress={handleCloseTicket} style={styles.closeTicketBtn}>
+                <Ionicons name="checkmark-circle-outline" size={16} color="#D32F2F" style={{marginRight: 4}} />
+                <Text style={styles.closeTicketText}>Cerrar Ticket</Text>
+            </TouchableOpacity>
+        )}
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -179,63 +270,80 @@ const ChatScreen = ({ route, navigation }: any) => {
             ListEmptyComponent={!loading ? <Text style={{textAlign:'center', marginTop:50, color:'#999'}}>Inicia la conversación 👋</Text> : <ActivityIndicator style={{marginTop:50}} color={COLORS.primary}/>}
         />
 
-        {/* PREVIEW DEL ARCHIVO */}
-        {attachment && (
+        {/* PREVIEW + RENOMBRAR (Solo si no está cerrado) */}
+        {attachment && !isClosed && (
             <View style={styles.previewContainer}>
                 <View style={styles.previewBox}>
-                    <Ionicons name={attachment.type === 'image' ? "image" : "document"} size={20} color="#666" />
-                    <Text style={styles.previewText} numberOfLines={1}>{attachment.name}</Text>
-                    <TouchableOpacity onPress={() => setAttachment(null)}>
-                        <Ionicons name="close-circle" size={22} color="red" />
+                    <Ionicons name={attachment.type === 'image' ? "image" : "document"} size={24} color="#666" />
+                    
+                    <TextInput 
+                        style={styles.fileNameInput}
+                        value={customFileName}
+                        onChangeText={setCustomFileName}
+                        placeholder="Nombre del archivo..."
+                    />
+
+                    <TouchableOpacity onPress={() => {setAttachment(null); setCustomFileName('');}}>
+                        <Ionicons name="close-circle" size={24} color="red" />
                     </TouchableOpacity>
                 </View>
             </View>
         )}
 
-        {/* INPUT AREA */}
+        {/* 🔥 AREA DE INPUT BLOQUEADA SI ESTÁ CERRADO */}
         <View style={[styles.inputWrapper, { paddingBottom: Platform.OS === 'android' ? insets.bottom + 10 : 10 }]}>
-            <View style={styles.inputContainer}>
-                <TouchableOpacity style={styles.attachBtn} onPress={() => setShowAttachMenu(true)}>
-                    <Ionicons name="attach" size={24} color="#666" />
-                </TouchableOpacity>
+            {isClosed ? (
+                <View style={styles.closedTicketBanner}>
+                    <Text style={styles.closedTicketTextBanner}>Este ticket ha sido finalizado. 🔒</Text>
+                </View>
+            ) : (
+                <View style={styles.inputContainer}>
+                    <TouchableOpacity style={styles.attachBtn} onPress={() => setShowAttachMenu(true)} disabled={sending}>
+                        <Ionicons name="attach" size={24} color="#666" />
+                    </TouchableOpacity>
 
-                <TextInput 
-                    style={styles.input} placeholder="Mensaje..." placeholderTextColor="#999"
-                    value={text} onChangeText={setText} multiline
-                />
-                <TouchableOpacity 
-                    style={[styles.sendBtn, { backgroundColor: (text.trim() || attachment) ? COLORS.primary : '#E0E0E0' }]} 
-                    onPress={handleSend} disabled={sending || (!text.trim() && !attachment)}
-                >
-                    {sending ? <ActivityIndicator color="white" size="small"/> : <Ionicons name="send" size={18} color="white" style={{marginLeft: 2}} />}
-                </TouchableOpacity>
-            </View>
+                    <TextInput 
+                        style={styles.input} placeholder="Escribe un mensaje..." placeholderTextColor="#999"
+                        value={text} onChangeText={setText} multiline
+                        editable={!sending}
+                    />
+                    
+                    <TouchableOpacity 
+                        style={[styles.sendBtn, { backgroundColor: (text.trim() || attachment) ? COLORS.primary : '#E0E0E0' }]} 
+                        onPress={handleSend} disabled={sending || (!text.trim() && !attachment)}
+                    >
+                        {sending ? <ActivityIndicator color="white" size="small"/> : <Ionicons name="send" size={18} color="white" style={{marginLeft: 2}} />}
+                    </TouchableOpacity>
+                </View>
+            )}
         </View>
       </KeyboardAvoidingView>
 
-      {/* MODAL */}
-      <Modal transparent visible={showAttachMenu} animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowAttachMenu(false)}>
-            <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Adjuntar Archivo</Text>
-                
-                <TouchableOpacity style={styles.modalOption} onPress={openCamera}>
-                    <View style={[styles.iconBox, {backgroundColor: '#E3F2FD'}]}><Ionicons name="camera" size={24} color="#2196F3" /></View>
-                    <Text style={styles.modalText}>Cámara</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity style={styles.modalOption} onPress={openGallery}>
-                    <View style={[styles.iconBox, {backgroundColor: '#E8F5E9'}]}><Ionicons name="images" size={24} color="#4CAF50" /></View>
-                    <Text style={styles.modalText}>Galería</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.modalOption} onPress={pickDocument}>
-                    <View style={[styles.iconBox, {backgroundColor: '#FFF3E0'}]}><Ionicons name="document" size={24} color="#FF9800" /></View>
-                    <Text style={styles.modalText}>Documento / PDF</Text>
-                </TouchableOpacity>
-            </View>
-        </TouchableOpacity>
-      </Modal>
+      {/* MODAL ADJUNTOS (Solo si no está cerrado) */}
+      {!isClosed && (
+          <Modal transparent visible={showAttachMenu} animationType="fade">
+            <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowAttachMenu(false)}>
+                <View style={styles.modalContent}>
+                    <Text style={styles.modalTitle}>Adjuntar Archivo</Text>
+                    
+                    <TouchableOpacity style={styles.modalOption} onPress={openCamera}>
+                        <View style={[styles.iconBox, {backgroundColor: '#E3F2FD'}]}><Ionicons name="camera" size={24} color="#2196F3" /></View>
+                        <Text style={styles.modalText}>Cámara</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity style={styles.modalOption} onPress={openGallery}>
+                        <View style={[styles.iconBox, {backgroundColor: '#E8F5E9'}]}><Ionicons name="images" size={24} color="#4CAF50" /></View>
+                        <Text style={styles.modalText}>Galería</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity style={styles.modalOption} onPress={pickDocument}>
+                        <View style={[styles.iconBox, {backgroundColor: '#FFF3E0'}]}><Ionicons name="document" size={24} color="#FF9800" /></View>
+                        <Text style={styles.modalText}>Documento / PDF</Text>
+                    </TouchableOpacity>
+                </View>
+            </TouchableOpacity>
+          </Modal>
+      )}
 
     </SafeAreaView>
   );
@@ -248,6 +356,9 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontFamily: FONTS.bold, color: COLORS.textDark },
   headerSubtitle: { fontSize: 12, fontFamily: FONTS.regular, color: COLORS.primary },
   
+  closeTicketBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFEBEE', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 15, borderWidth: 1, borderColor: '#FFCDD2' },
+  closeTicketText: { color: '#D32F2F', fontSize: 12, fontWeight: 'bold' },
+
   msgBubble: { padding: 12, borderRadius: 18, maxWidth: '100%' },
   msgMe: { backgroundColor: COLORS.primary, borderTopRightRadius: 4, borderBottomRightRadius: 0 },
   msgOther: { backgroundColor: '#f5f5f5', borderTopLeftRadius: 4, borderBottomLeftRadius: 0 },
@@ -259,13 +370,18 @@ const styles = StyleSheet.create({
 
   inputWrapper: { padding: 10, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F8F8', borderRadius: 25, paddingHorizontal: 5, paddingVertical: 5 },
+  
+  // 🔥 ESTILOS PARA TICKET CERRADO
+  closedTicketBanner: { backgroundColor: '#eee', padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  closedTicketTextBanner: { color: '#666', fontFamily: FONTS.bold },
+
   attachBtn: { padding: 10 },
   input: { flex: 1, paddingHorizontal: 10, paddingVertical: 10, maxHeight: 100, fontSize: 15, color: COLORS.textDark, fontFamily: FONTS.regular },
   sendBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 5 },
 
-  previewContainer: { paddingHorizontal: 20, paddingBottom: 10 },
+  previewContainer: { paddingHorizontal: 20, paddingBottom: 10, backgroundColor: '#fff' },
   previewBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0F0F0', padding: 10, borderRadius: 10, borderWidth:1, borderColor:'#ddd' },
-  previewText: { flex: 1, marginHorizontal: 10, color: '#333' },
+  fileNameInput: { flex: 1, marginHorizontal: 10, color: '#333', borderBottomWidth: 1, borderBottomColor: '#ccc', paddingVertical: 2 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25 },

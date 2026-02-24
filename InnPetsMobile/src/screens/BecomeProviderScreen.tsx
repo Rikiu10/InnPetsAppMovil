@@ -7,27 +7,28 @@ import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api from '../services/api'; 
 import { REGIONES_CHILE } from '../constants/chile_data'; 
 import { useAuth } from '../context/AuthContext';
-// 👇 IMPORTS PARA ARCHIVOS E IMÁGENES
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { uploadFileToCloudinary } from '../services/fileService';   // Para el PDF
-import { uploadImageToCloudinary } from '../services/imageService'; // Para la FOTO (Cámara/Galería)
+import { uploadFileToCloudinary } from '../services/fileService';   
+import { uploadImageToCloudinary } from '../services/imageService'; 
 
 const BecomeProviderScreen = ({ navigation }: any) => {
   const { setUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [fetchingData, setFetchingData] = useState(true);
 
-  // Estados del Formulario
   const [phone, setPhone] = useState('');
   const [bio, setBio] = useState('');
   const [address, setAddress] = useState('');
   const [selectedRegion, setSelectedRegion] = useState<any>(null);
   const [selectedComuna, setSelectedComuna] = useState<string>('');
 
-  // ESTADO HÍBRIDO (Puede ser PDF o IMAGEN)
+  // ARCHIVOS
   const [selectedDoc, setSelectedDoc] = useState<any>(null);
   const [docType, setDocType] = useState<'image' | 'pdf' | null>(null);
+  
+  // 👇 NUEVO: Estado para que el usuario edite el nombre
+  const [customFileName, setCustomFileName] = useState('');
 
   const [showRegionModal, setShowRegionModal] = useState(false);
   const [showComunaModal, setShowComunaModal] = useState(false);
@@ -54,15 +55,14 @@ const BecomeProviderScreen = ({ navigation }: any) => {
     }
   };
 
-  // --- LÓGICA DE SELECCIÓN ---
   const handleSelectFile = () => {
       Alert.alert(
           "Subir Certificado",
-          "Elige el formato de tu documento",
+          "Elige el formato",
           [
               { text: "📷 Cámara", onPress: openCamera },
-              { text: "🖼️ Galería (Fotos)", onPress: openGallery },
-              { text: "📄 Documento (PDF)", onPress: pickDocument },
+              { text: "🖼️ Galería", onPress: openGallery },
+              { text: "📄 PDF", onPress: pickDocument },
               { text: "Cancelar", style: "cancel" }
           ]
       );
@@ -71,71 +71,75 @@ const BecomeProviderScreen = ({ navigation }: any) => {
   const openCamera = async () => {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) return Alert.alert("Permiso denegado");
-      
       const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
       if (!result.canceled) {
-          setSelectedDoc(result.assets[0]);
+          const asset = result.assets[0];
+          const name = `foto_cert_${Date.now()}.jpg`;
+          setSelectedDoc(asset);
           setDocType('image');
+          setCustomFileName(name); // Ponemos nombre por defecto
       }
   };
 
   const openGallery = async () => {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) return Alert.alert("Permiso denegado");
-
       const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7 });
       if (!result.canceled) {
-          setSelectedDoc(result.assets[0]);
+          const asset = result.assets[0];
+          const name = asset.fileName || `imagen_cert_${Date.now()}.jpg`;
+          setSelectedDoc(asset);
           setDocType('image');
+          setCustomFileName(name); // Ponemos nombre original
       }
   };
 
   const pickDocument = async () => {
     try {
-        const result = await DocumentPicker.getDocumentAsync({
-            type: 'application/pdf',
-            copyToCacheDirectory: true,
-        });
-        if (result.canceled === false) {
-            const file = result.assets ? result.assets[0] : result;
+        const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
+        if (!result.canceled && result.assets) {
+            const file = result.assets[0];
             setSelectedDoc(file);
             setDocType('pdf');
+            setCustomFileName(file.name); // Ponemos nombre original del PDF
         }
-    } catch (err) {
-        console.log("Error seleccionando archivo", err);
-    }
+    } catch (err) { console.log(err); }
   };
 
   const handleSubmit = async () => {
     if (!bio || !phone || !selectedRegion || !selectedComuna) {
-      Alert.alert("Faltan datos", "Por favor completa todos los campos de perfil.");
+      Alert.alert("Faltan datos", "Completa el perfil.");
       return;
     }
     if (!selectedDoc) {
-        Alert.alert("Falta certificación", "Debes subir tu certificado.");
+        Alert.alert("Falta certificación", "Sube tu certificado.");
+        return;
+    }
+    // Validamos que el usuario haya puesto un nombre
+    if (!customFileName.trim()) {
+        Alert.alert("Nombre de archivo", "Por favor asigna un nombre al archivo.");
         return;
     }
 
     setLoading(true);
     try {
       let docUrl = "";
-
-      // 1. SUBIR A CLOUDINARY (Dependiendo del tipo)
+      
+      // Enviamos el nombre personalizado (customFileName)
       if (docType === 'image') {
-          // Usamos la función de imagen (asegúrate de tenerla importada)
+          // Nota: Para imágenes, Cloudinary suele usar su propio ID, pero podemos intentar enviar el public_id o metadata
+          // Si tu función uploadImageToCloudinary soporta nombre, úsalo. Si no, subirá con nombre aleatorio pero no afecta.
           docUrl = await uploadImageToCloudinary(selectedDoc.uri);
       } else {
-          // Usamos la función de PDF
           docUrl = await uploadFileToCloudinary(
               selectedDoc.uri, 
-              selectedDoc.name || 'certificado.pdf', 
+              customFileName, // 👈 AQUÍ USAMOS EL NOMBRE DEL INPUT
               selectedDoc.mimeType || 'application/pdf'
           );
       }
 
-      if (!docUrl) throw new Error("Fallo al subir el documento");
+      if (!docUrl) throw new Error("Fallo al subir");
 
-      // 2. Actualizar Perfil
       const userUpdateRes = await api.patch('/users/me/', {
         phone_number: phone,
         region: selectedRegion.region,
@@ -144,29 +148,24 @@ const BecomeProviderScreen = ({ navigation }: any) => {
         provider_profile: { professional_bio: bio }
       });
 
-      // 3. Crear Certificación
+      // Guardamos la certificación (aquí podrías mandar el nombre al backend si tienes un campo 'title' en el modelo Certification)
       await api.post('/certifications/', {
-          document_url: docUrl
+          document_url: docUrl,
+          // title: customFileName  <-- Si tu backend soporta título, descomenta esto
       });
 
-      // 4. Actualizar Estado Local
       await setUser(userUpdateRes.data);
 
-      Alert.alert(
-        "¡Solicitud Enviada! 📨", 
-        "Tus documentos han sido enviados. Tu estado es 'En Revisión'.", 
-        [{ text: "Entendido", onPress: () => navigation.goBack() }]
-      );
+      Alert.alert("¡Enviado! 📨", "Solicitud en revisión.", [{ text: "OK", onPress: () => navigation.goBack() }]);
 
     } catch (error: any) {
-      console.error("Error:", error);
-      Alert.alert("Error", error.message || "No se pudo enviar la solicitud.");
+      Alert.alert("Error", "No se pudo enviar.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Renders de Modales... (Iguales al anterior)
+  // Renders... (igual que antes)
   const renderRegionItem = ({ item }: any) => (
     <TouchableOpacity style={styles.modalItem} onPress={() => { setSelectedRegion(item); setSelectedComuna(''); setShowRegionModal(false); }}>
       <Text style={styles.modalItemText}>{item.region}</Text>
@@ -189,55 +188,62 @@ const BecomeProviderScreen = ({ navigation }: any) => {
           </TouchableOpacity>
 
           <Text style={styles.title}>Certificación Profesional 🎓</Text>
-          <Text style={styles.subtitle}>Completa tus datos y sube tu documentación.</Text>
+          <Text style={styles.subtitle}>Completa tus datos.</Text>
 
           <View style={styles.form}>
             <Text style={styles.sectionHeader}>1. Datos de Contacto</Text>
             
+            {/* ... INPUTS DE REGIÓN, COMUNA, ETC (IGUAL QUE ANTES) ... */}
             <Text style={styles.label}>Región *</Text>
             <TouchableOpacity style={styles.selectBtn} onPress={() => setShowRegionModal(true)}>
                 <Text style={{color: selectedRegion ? '#000' : '#999'}}>{selectedRegion ? selectedRegion.region : "Selecciona Región"}</Text>
-                <Text>▼</Text>
             </TouchableOpacity>
-
+            
             <Text style={styles.label}>Comuna *</Text>
-            <TouchableOpacity style={[styles.selectBtn, !selectedRegion && {backgroundColor: '#f5f5f5'}]} onPress={() => selectedRegion && setShowComunaModal(true)} disabled={!selectedRegion}>
+            <TouchableOpacity style={[styles.selectBtn, !selectedRegion && {backgroundColor: '#f5f5f5'}]} onPress={() => selectedRegion && setShowComunaModal(true)}>
                 <Text style={{color: selectedComuna ? '#000' : '#999'}}>{selectedComuna || "Selecciona Comuna"}</Text>
-                <Text>▼</Text>
             </TouchableOpacity>
 
-            <Text style={styles.label}>Dirección Base (Opcional)</Text>
-            <TextInput style={styles.input} value={address} onChangeText={setAddress} placeholder="Calle Principal 123" />
-
-            <Text style={styles.label}>Teléfono de Contacto *</Text>
-            <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="+56 9 1234 5678" />
-
-            <Text style={styles.label}>Tu Presentación (Bio) *</Text>
-            <TextInput style={[styles.input, styles.textArea]} multiline numberOfLines={4} value={bio} onChangeText={setBio} placeholder="Hola, tengo experiencia..." />
+            <Text style={styles.label}>Dirección</Text>
+            <TextInput style={styles.input} value={address} onChangeText={setAddress} placeholder="Calle 123" />
+            <Text style={styles.label}>Teléfono</Text>
+            <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
+            <Text style={styles.label}>Bio</Text>
+            <TextInput style={[styles.input, styles.textArea]} multiline numberOfLines={4} value={bio} onChangeText={setBio} />
 
             <View style={styles.divider} />
             <Text style={styles.sectionHeader}>2. Certificación</Text>
-            <Text style={styles.helperText}>Sube una foto o PDF de tu título o curso.</Text>
-
+            
             <TouchableOpacity style={styles.uploadBtn} onPress={handleSelectFile}>
                 {selectedDoc ? (
                     docType === 'image' ? (
-                        // Vista previa si es imagen
-                        <Image source={{ uri: selectedDoc.uri }} style={{ width: '100%', height: '100%', borderRadius: 10 }} resizeMode="cover" />
+                        <Image source={{ uri: selectedDoc.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                     ) : (
-                        // Icono si es PDF
                         <View style={{alignItems:'center'}}>
                             <Text style={{fontSize: 40}}>📄</Text>
-                            <Text style={styles.fileName}>{selectedDoc.name}</Text>
+                            <Text style={styles.fileName}>Documento PDF Seleccionado</Text>
                         </View>
                     )
                 ) : (
                     <View style={{alignItems:'center'}}>
-                        <Text style={{fontSize: 32}}>cloud_upload</Text> 
-                        <Text style={styles.uploadText}>Subir Documento / Foto</Text>
+                        <Text style={{fontSize: 32}}>☁️</Text> 
+                        <Text style={styles.uploadText}>Toca para subir</Text>
                     </View>
                 )}
             </TouchableOpacity>
+
+            {/* 👇 NUEVO: CAMPO PARA RENOMBRAR EL ARCHIVO */}
+            {selectedDoc && (
+                <View style={{marginBottom: 20}}>
+                    <Text style={styles.label}>Nombre del Archivo (Editable):</Text>
+                    <TextInput 
+                        style={styles.input} 
+                        value={customFileName} 
+                        onChangeText={setCustomFileName}
+                        placeholder="Ej: Titulo_Veterinario.pdf"
+                    />
+                </View>
+            )}
 
             <TouchableOpacity style={styles.btnPrimary} onPress={handleSubmit} disabled={loading}>
               {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Enviar Solicitud</Text>}
@@ -246,7 +252,7 @@ const BecomeProviderScreen = ({ navigation }: any) => {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Modales */}
+      {/* Modales... */}
       <Modal visible={showRegionModal} transparent animationType="slide">
         <View style={styles.modalOverlay}><View style={styles.modalContent}><FlatList data={REGIONES_CHILE} keyExtractor={i=>i.region} renderItem={renderRegionItem}/><TouchableOpacity style={styles.closeBtn} onPress={()=>setShowRegionModal(false)}><Text style={styles.closeText}>Cerrar</Text></TouchableOpacity></View></View>
       </Modal>
@@ -260,22 +266,17 @@ const BecomeProviderScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   title: { fontSize: 22, fontFamily: FONTS.bold, color: COLORS.primary, marginBottom: 5 },
-  subtitle: { color: COLORS.textLight, marginBottom: 20, fontSize: 13, lineHeight: 18 },
+  subtitle: { color: COLORS.textLight, marginBottom: 20, fontSize: 13 },
   form: { gap: 12 },
   sectionHeader: { fontSize: 18, fontFamily: FONTS.bold, color: COLORS.textDark, marginTop: 10, marginBottom: 5 },
   label: { fontFamily: FONTS.bold, color: COLORS.textDark, marginBottom: 2 },
-  helperText: { fontSize: 12, color: '#888', marginBottom: 10 },
   input: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', ...SHADOWS.card },
   textArea: { height: 80, textAlignVertical: 'top' },
-  selectBtn: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', flexDirection: 'row', justifyContent: 'space-between', ...SHADOWS.card },
+  selectBtn: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', ...SHADOWS.card },
   divider: { height: 1, backgroundColor: '#ddd', marginVertical: 15 },
-  uploadBtn: { 
-      height: 150, borderWidth: 2, borderColor: COLORS.primary, borderStyle: 'dashed', 
-      borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 10,
-      backgroundColor: '#F9F9F9', overflow: 'hidden'
-  },
+  uploadBtn: { height: 150, borderWidth: 2, borderColor: COLORS.primary, borderStyle: 'dashed', borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 10, backgroundColor: '#F9F9F9', overflow: 'hidden' },
   uploadText: { fontFamily: FONTS.bold, color: COLORS.primary, marginTop: 5 },
-  fileName: { fontSize: 12, color: '#555', textAlign: 'center', marginTop: 2 },
+  fileName: { fontSize: 12, color: '#333', marginTop: 5, fontWeight: 'bold' },
   btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10, marginBottom: 40, ...SHADOWS.card },
   btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },

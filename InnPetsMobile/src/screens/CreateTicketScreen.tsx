@@ -1,13 +1,71 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api from '../services/api';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadFileToCloudinary } from '../services/fileService';
+import { uploadImageToCloudinary } from '../services/imageService';
 
 const CreateTicketScreen = ({ navigation }: any) => {
     const [subject, setSubject] = useState('');
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    
+    // Archivo
+    const [selectedFile, setSelectedFile] = useState<any>(null);
+    const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
+    
+    // 👇 NUEVO: Nombre editable del archivo
+    const [customFileName, setCustomFileName] = useState('');
+
+    const handleAttachFile = () => {
+        Alert.alert(
+            "Adjuntar Archivo",
+            "¿Qué deseas adjuntar?",
+            [
+                { text: "📷 Cámara", onPress: openCamera },
+                { text: "🖼️ Galería", onPress: openGallery },
+                { text: "📄 Documento PDF", onPress: pickDocument },
+                { text: "Cancelar", style: "cancel" }
+            ]
+        );
+    };
+
+    const openCamera = async () => {
+        const result = await ImagePicker.launchCameraAsync({ quality: 0.5 });
+        if (!result.canceled) {
+            const asset = result.assets[0];
+            const name = `foto_ticket_${Date.now()}.jpg`;
+            setSelectedFile(asset);
+            setFileType('image');
+            setCustomFileName(name);
+        }
+    };
+
+    const openGallery = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.5 });
+        if (!result.canceled) {
+            const asset = result.assets[0];
+            const name = asset.fileName || `img_ticket_${Date.now()}.jpg`;
+            setSelectedFile(asset);
+            setFileType('image');
+            setCustomFileName(name);
+        }
+    };
+
+    const pickDocument = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
+            if (!result.canceled && result.assets) {
+                const file = result.assets[0];
+                setSelectedFile(file);
+                setFileType('pdf');
+                setCustomFileName(file.name);
+            }
+        } catch (err) { console.log(err); }
+    };
 
     const handleSubmit = async () => {
         if (!subject.trim() || !message.trim()) {
@@ -17,20 +75,35 @@ const CreateTicketScreen = ({ navigation }: any) => {
 
         setLoading(true);
         try {
-            // 👇 URL CORREGIDA SEGÚN TU BACKEND (urls.py)
+            let fileUrl = null;
+
+            if (selectedFile) {
+                if (fileType === 'image') {
+                    // Para imágenes, Cloudinary suele manejar el nombre internamente, 
+                    // pero intentaremos subirlo tal cual.
+                    fileUrl = await uploadImageToCloudinary(selectedFile.uri);
+                } else {
+                    // Para PDF, usamos el nombre personalizado
+                    fileUrl = await uploadFileToCloudinary(
+                        selectedFile.uri, 
+                        customFileName, // 👈 USAMOS EL NOMBRE EDITADO
+                        selectedFile.mimeType || 'application/pdf'
+                    );
+                }
+            }
+
             await api.post('/chat/create-ticket/', {
                 subject: subject,
                 message: message,
-                priority: 'MEDIUM' 
+                priority: 'MEDIUM',
+                attachment: fileUrl 
             });
 
-            Alert.alert("¡Enviado! 📨", "Un administrador revisará tu caso pronto.", [
+            Alert.alert("¡Enviado! 📨", "Ticket creado correctamente.", [
                 { text: "OK", onPress: () => navigation.goBack() }
             ]);
         } catch (error: any) {
-            console.error("Error ticket:", error);
-            // Mensaje de error más amigable si el backend falla
-            const errorMsg = error.response?.data?.detail || "No se pudo enviar el ticket. Intenta más tarde.";
+            const errorMsg = error.response?.data?.detail || "No se pudo enviar el ticket.";
             Alert.alert("Error", errorMsg);
         } finally {
             setLoading(false);
@@ -47,30 +120,62 @@ const CreateTicketScreen = ({ navigation }: any) => {
             </View>
 
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{flex:1}}>
-                <View style={styles.form}>
+                <ScrollView contentContainerStyle={styles.form}>
                     <Text style={styles.label}>Asunto</Text>
                     <TextInput 
                         style={styles.input} 
                         placeholder="Ej: Problema con un pago" 
-                        value={subject} 
-                        onChangeText={setSubject}
+                        value={subject} onChangeText={setSubject}
                     />
 
                     <Text style={styles.label}>Mensaje</Text>
                     <TextInput 
                         style={[styles.input, styles.textArea]} 
-                        placeholder="Describe detalladamente tu problema..." 
-                        multiline 
-                        numberOfLines={6}
-                        value={message} 
-                        onChangeText={setMessage}
+                        placeholder="Describe tu problema..." 
+                        multiline numberOfLines={6}
+                        value={message} onChangeText={setMessage}
                         textAlignVertical="top"
                     />
+
+                    {/* BOTÓN ADJUNTAR */}
+                    <TouchableOpacity style={styles.attachBtn} onPress={handleAttachFile}>
+                        {selectedFile ? (
+                            <View style={{flexDirection:'row', alignItems:'center'}}>
+                                <Text style={{fontSize: 20, marginRight: 10}}>{fileType === 'image' ? '🖼️' : '📄'}</Text>
+                                <Text style={{color: COLORS.primary, fontWeight:'bold'}}>Archivo seleccionado</Text>
+                            </View>
+                        ) : (
+                            <View style={{flexDirection:'row', alignItems:'center', justifyContent:'center'}}>
+                                <Text style={{fontSize: 18, marginRight: 5}}>📎</Text>
+                                <Text style={{color: COLORS.primary, fontWeight: 'bold'}}>Adjuntar Archivo (Opcional)</Text>
+                            </View>
+                        )}
+                    </TouchableOpacity>
+
+                    {/* 👇 CAMPO PARA EDITAR NOMBRE DEL ARCHIVO */}
+                    {selectedFile && (
+                        <View style={{marginBottom: 20}}>
+                            <Text style={styles.label}>Nombre del Archivo:</Text>
+                            <View style={{flexDirection: 'row', gap: 10}}>
+                                <TextInput 
+                                    style={[styles.input, {flex: 1, marginBottom: 0}]} 
+                                    value={customFileName} 
+                                    onChangeText={setCustomFileName}
+                                />
+                                <TouchableOpacity 
+                                    style={styles.deleteFileBtn} 
+                                    onPress={() => { setSelectedFile(null); setCustomFileName(''); }}
+                                >
+                                    <Text style={{fontSize: 20}}>🗑️</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
 
                     <TouchableOpacity style={styles.btn} onPress={handleSubmit} disabled={loading}>
                         {loading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>Enviar Ticket</Text>}
                     </TouchableOpacity>
-                </View>
+                </ScrollView>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
@@ -81,10 +186,12 @@ const styles = StyleSheet.create({
     header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
     backBtn: { marginRight: 15 },
     title: { fontSize: 24, fontFamily: FONTS.bold, color: COLORS.textDark },
-    form: { marginTop: 10 },
+    form: { marginTop: 10, paddingBottom: 40 },
     label: { fontFamily: FONTS.bold, marginBottom: 8, color: COLORS.textDark },
     input: { backgroundColor: 'white', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', marginBottom: 20 },
     textArea: { height: 150 },
+    attachBtn: { backgroundColor: '#F0F8FF', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: COLORS.primary, borderStyle: 'dashed', marginBottom: 20 },
+    deleteFileBtn: { backgroundColor: '#FFEBEE', width: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FFCDD2' },
     btn: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', ...SHADOWS.card },
     btnText: { color: 'white', fontFamily: FONTS.bold, fontSize: 16 }
 });

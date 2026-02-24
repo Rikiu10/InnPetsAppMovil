@@ -4,8 +4,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
-import { servicesService } from '../services/api';
-import { Service, RootStackParamList, MainTabParamList } from '../types';
+import api, { servicesService } from '../services/api';
+import { Service, ServiceCategory, RootStackParamList, MainTabParamList } from '../types';
 
 // IMPORTS DE NAVEGACIÓN
 import { CompositeScreenProps } from '@react-navigation/native';
@@ -17,79 +17,87 @@ type ServicesScreenProps = CompositeScreenProps<
   NativeStackScreenProps<RootStackParamList>
 >;
 
-// Categorías para el filtro superior
-const CATEGORIES_FILTER = ['Todos', 'Paseo', 'Guardería', 'Hospedaje', 'Baño', 'Veterinaria'];
-
-// Mapa para traducir el código del backend (WALK) a español (Paseo)
-const CATEGORY_LABELS: Record<string, string> = {
-    'WALK': 'Paseo 🐕',
-    'BOARDING': 'Hospedaje 🏨',
-    'DAYCARE': 'Guardería ☀️',
-    'GROOMING': 'Peluquería ✂️', // A veces "Baño" cae aquí
-    'VETERINARY': 'Veterinaria 🩺',
-    'TRAINING': 'Adiestramiento 🎓',
-    'OTHER': 'Otro 🐾'
-};
-
-// Mapa inverso para el filtro (Español -> Código Backend)
-// Esto sirve para cuando seleccionas "Paseo" en el filtro, sepamos buscar "WALK"
-const FILTER_MAP: Record<string, string> = {
-    'Paseo': 'WALK',
-    'Guardería': 'DAYCARE',
-    'Hospedaje': 'BOARDING',
-    'Baño': 'GROOMING',
-    'Veterinaria': 'VETERINARY'
+// Diccionario para traducir las unidades de cobro en la tarjeta
+const UNIT_LABELS: Record<string, string> = {
+    'PER_HOUR': '/hr',
+    'PER_SERVICE': '/serv',
+    'PER_NIGHT': '/noche',
+    'PER_VISIT': '/visita'
 };
 
 const ServicesScreen = ({ navigation }: ServicesScreenProps) => {
   const [loading, setLoading] = useState(true);
   const [services, setServices] = useState<Service[]>([]); 
-  const [selectedCategory, setSelectedCategory] = useState('Todos');
+  const [categories, setCategories] = useState<ServiceCategory[]>([]);
+  
+  // El filtro ahora guarda el 'id' de la categoría (o 'Todos')
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   
   useEffect(() => {
-    fetchServices();
+    fetchData();
   }, []);
 
-  const fetchServices = async () => {
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const data = await servicesService.getAllServices();
-      setServices(data);
+      // Traemos servicios y categorías al mismo tiempo
+      const [servicesData, categoriesData] = await Promise.all([
+          servicesService.getAllServices(),
+          servicesService.getCategories()
+      ]);
+      setServices(servicesData);
+      setCategories(categoriesData);
     } catch (error) {
       console.error(error);
-      Alert.alert("Error", "No se pudieron cargar los servicios.");
+      Alert.alert("Error", "No se pudieron cargar los datos.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Lógica de filtrado
+  // Lógica de filtrado Dinámico
   const filteredServices = selectedCategory === 'Todos' 
     ? services 
-    : services.filter(item => item.service_type === FILTER_MAP[selectedCategory]);
+    : services.filter(item => {
+        // Soporte por si el backend devuelve la categoría como objeto o como ID numérico
+        const catId = typeof item.category === 'object' && item.category !== null 
+            ? item.category.id 
+            : item.category;
+            
+        return catId?.toString() === selectedCategory;
+    });
+
+  // Construimos las pestañas (Tabs) uniendo "Todos" con las categorías de la BD
+  const filterTabs = [{ id: 'Todos', name: 'Todos' }, ...categories];
 
   const renderServiceItem: ListRenderItem<Service> = ({ item }) => {
     
-    // 1. Obtener imagen: Si hay array y tiene elementos, usar la primera. Si no, placeholder.
-
+    // 1. Obtener imagen
     const imageSource = (item.photos_url && item.photos_url.length > 0) 
       ? { uri: item.photos_url[0] } 
-      : { uri: 'https://cdn-icons-png.flaticon.com/512/620/620851.png' }; // URL de una patita para que no falle
+      : { uri: 'https://cdn-icons-png.flaticon.com/512/620/620851.png' }; 
 
-    // 2. Obtener etiqueta de categoría
-    const categoryLabel = CATEGORY_LABELS[item.service_type] || 'Servicio';
+    // 2. Obtener Nombre de la Categoría
+    let categoryName = 'Servicio';
+    if (typeof item.category === 'object' && item.category?.name) {
+        categoryName = item.category.name;
+    } else {
+        const found = categories.find(c => c.id.toString() === item.category?.toString());
+        if (found) categoryName = found.name;
+    }
 
-    // 3. Preparar objeto para navegación (si necesitas pasar props extra)
-    const serviceForDetail = { ...item };
+    // 3. Unidad de Cobro
+    const unitSuffix = item.charging_unit ? (UNIT_LABELS[item.charging_unit] || '') : '';
 
     return (
       <TouchableOpacity 
         style={styles.card}
-        onPress={() => navigation.navigate('ServiceDetail', { service: serviceForDetail })}
+        onPress={() => navigation.navigate('ServiceDetail', { service: item })}
       >
         {/* IMAGEN DEL SERVICIO */}
         <View style={styles.cardImageContainer}>
              <Image source={imageSource} style={styles.cardImage} resizeMode="cover" />
-             {/* Badge de Nivel sobre la imagen */}
+             {/* Badge de Nivel */}
              <View style={[styles.badge, { backgroundColor: '#fff', position: 'absolute', top: 10, left: 10 }]}>
                 <Text style={[styles.badgeText, { color: COLORS.primary }]}>
                   {item.certification_level || 'Estándar'}
@@ -100,14 +108,15 @@ const ServicesScreen = ({ navigation }: ServicesScreenProps) => {
         <View style={styles.cardContent}>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
           
-          {/* Categoría */}
-          <Text style={styles.categoryText}>{categoryLabel}</Text>
+          {/* Categoría Dinámica */}
+          <Text style={styles.categoryText}>{categoryName}</Text>
           
           <View style={styles.footerRow}>
               <View style={styles.ratingContainer}>
-                <Text style={styles.stars}>★ 5.0</Text> 
+                <Text style={styles.stars}>★ {item.average_rating ? item.average_rating.toFixed(1) : 'Nuevo'}</Text> 
               </View>
-              <Text style={styles.price}>${item.price}</Text>
+              {/* Precio + Unidad */}
+              <Text style={styles.price}>${item.price}{unitSuffix}</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -121,25 +130,26 @@ const ServicesScreen = ({ navigation }: ServicesScreenProps) => {
           <Text style={{ fontSize: 18 }}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Servicios Disponibles</Text>
-        <TouchableOpacity style={styles.filterBtn} onPress={fetchServices}>
+        <TouchableOpacity style={styles.filterBtn} onPress={fetchData}>
           <Text>🔄</Text> 
         </TouchableOpacity>
       </View>
 
+      {/* TABS DE FILTRADO DINÁMICOS */}
       <View>
         <FlatList
-          data={CATEGORIES_FILTER}
+          data={filterTabs}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tabsContainer}
-          keyExtractor={(item) => item}
+          keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => (
             <TouchableOpacity 
-              style={[styles.tab, selectedCategory === item && styles.activeTab]}
-              onPress={() => setSelectedCategory(item)}
+              style={[styles.tab, selectedCategory === item.id.toString() && styles.activeTab]}
+              onPress={() => setSelectedCategory(item.id.toString())}
             >
-              <Text style={[styles.tabText, selectedCategory === item && styles.activeTabText]}>
-                {item}
+              <Text style={[styles.tabText, selectedCategory === item.id.toString() && styles.activeTabText]}>
+                {item.name}
               </Text>
             </TouchableOpacity>
           )}

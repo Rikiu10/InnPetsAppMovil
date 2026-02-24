@@ -9,9 +9,20 @@ import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api from '../services/api';
 import { Ionicons } from '@expo/vector-icons'; 
 
+const ITEMS_PER_PAGE = 5; // 👈 Solo 5 items por vista
+
 const ReservasScreen = ({ navigation }: any) => {
   const [bookings, setBookings] = useState<any[]>([]);           
+  
+  // Lista completa filtrada
   const [filteredBookings, setFilteredBookings] = useState<any[]>([]); 
+  
+  // Lista recortada (Solo la página actual)
+  const [visibleBookings, setVisibleBookings] = useState<any[]>([]);
+  
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userRole, setUserRole] = useState<'PP' | 'IP' | null>(null);
@@ -35,6 +46,7 @@ const ReservasScreen = ({ navigation }: any) => {
 
       const res = await api.get('/bookings/');
       setBookings(res.data);
+      // Aplicamos filtro inicial
       filterData(res.data, activeFilter);
     } catch (error) {
       console.error("Error cargando reservas:", error);
@@ -49,14 +61,20 @@ const ReservasScreen = ({ navigation }: any) => {
     fetchBookings();
   };
 
+  // Cada vez que cambiamos filtro, reseteamos a página 1
   useEffect(() => {
       filterData(bookings, activeFilter);
   }, [activeFilter, bookings]);
 
-  // Lógica de filtrado
+  // 👇 Cada vez que cambia la página o la lista filtrada, recalculamos lo visible
+  useEffect(() => {
+      updateVisibleItems();
+  }, [currentPage, filteredBookings]);
+
   const filterData = (data: any[], filter: string) => {
+      let result = [];
       if (filter === 'Todos') {
-          setFilteredBookings(data);
+          result = data;
       } else {
           const map: any = {
               'Pendientes': ['PENDING'],
@@ -67,26 +85,43 @@ const ReservasScreen = ({ navigation }: any) => {
           };
           
           const statusCodes = map[filter] || [];
-          const result = data.filter(item => statusCodes.includes(item.status));
-          setFilteredBookings(result);
+          result = data.filter(item => statusCodes.includes(item.status));
       }
+      
+      setFilteredBookings(result);
+      setTotalPages(Math.ceil(result.length / ITEMS_PER_PAGE) || 1);
+      setCurrentPage(1); // Siempre volver a la 1 al filtrar
+  };
+
+  const updateVisibleItems = () => {
+      const start = (currentPage - 1) * ITEMS_PER_PAGE;
+      const end = start + ITEMS_PER_PAGE;
+      setVisibleBookings(filteredBookings.slice(start, end));
+  };
+
+  // --- CONTROLES DE PAGINACIÓN ---
+  const goToNextPage = () => {
+      if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
+
+  const goToPrevPage = () => {
+      if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
 
   const handleDeleteBooking = (id: number) => {
     Alert.alert(
         "Eliminar del historial",
-        "¿Estás seguro? Esta acción solo la ocultará de tu lista.",
+        "¿Estás seguro?",
         [
             { text: "Cancelar", style: "cancel" },
             { 
                 text: "Eliminar", 
                 style: "destructive", 
                 onPress: async () => {
-                    try {
+                    try { 
                         await api.delete(`/bookings/${id}/`);
                         fetchBookings(); 
                     } catch (error: any) {
-                        console.error(error);
                         Alert.alert("Error", "No se pudo eliminar.");
                     }
                 }
@@ -127,7 +162,6 @@ const ReservasScreen = ({ navigation }: any) => {
     const statusStyle = getStatusColor(item.status);
     const counterpartName = userRole === 'IP' ? item.owner_name : item.provider_name;
     const counterpartLabel = userRole === 'IP' ? 'Cliente' : 'Cuidador';
-    
     const isDeletable = ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(item.status);
 
     return (
@@ -135,8 +169,6 @@ const ReservasScreen = ({ navigation }: any) => {
         style={styles.card}
         activeOpacity={0.7}
         onPress={() => {
-            // 👇 CORRECCIÓN AQUÍ: Cambiamos 'BookingDetailScreen' por 'BookingDetail'
-            // Esto coincide con el nombre que definiste en tu App.tsx o Navigator
             navigation.navigate('BookingDetail', { 
                 booking: item,
                 userRole: userRole 
@@ -174,37 +206,57 @@ const ReservasScreen = ({ navigation }: any) => {
     );
   };
 
+  // 👇 RENDERIZADO DE LA PAGINACIÓN
+  const renderPagination = () => {
+      // Si no hay datos o solo hay 1 página, no mostramos nada
+      if (filteredBookings.length === 0 || totalPages <= 1) return <View style={{height: 20}} />;
+
+      return (
+          <View style={styles.paginationContainer}>
+              <TouchableOpacity 
+                  style={[styles.pageBtn, currentPage === 1 && styles.pageBtnDisabled]} 
+                  onPress={goToPrevPage}
+                  disabled={currentPage === 1}
+              >
+                  <Ionicons name="chevron-back" size={20} color={currentPage === 1 ? '#ccc' : COLORS.primary} />
+                  <Text style={[styles.pageBtnText, currentPage === 1 && {color:'#ccc'}]}>Ant.</Text>
+              </TouchableOpacity>
+
+              <View style={styles.pageInfo}>
+                  <Text style={styles.pageText}>
+                      Página <Text style={{fontWeight:'bold', color: COLORS.primary}}>{currentPage}</Text> de {totalPages}
+                  </Text>
+              </View>
+
+              <TouchableOpacity 
+                  style={[styles.pageBtn, currentPage === totalPages && styles.pageBtnDisabled]} 
+                  onPress={goToNextPage}
+                  disabled={currentPage === totalPages}
+              >
+                  <Text style={[styles.pageBtnText, currentPage === totalPages && {color:'#ccc'}]}>Sig.</Text>
+                  <Ionicons name="chevron-forward" size={20} color={currentPage === totalPages ? '#ccc' : COLORS.primary} />
+              </TouchableOpacity>
+          </View>
+      );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Mis Reservas</Text>
       </View>
 
-      {/* FILTROS (CHIPS) */}
       <View style={{ paddingVertical: 15, paddingLeft: 20 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {[
-                'Todos', 
-                'Pendientes', 
-                'Confirmadas', 
-                'En Curso', 
-                'Completadas', 
-                'Canceladas'
+                'Todos', 'Pendientes', 'Confirmadas', 'En Curso', 'Completadas', 'Canceladas'
             ].map((cat, index) => (
                 <TouchableOpacity 
                     key={index} 
-                    style={[
-                        styles.filterChip, 
-                        activeFilter === cat && styles.filterChipActive
-                    ]}
+                    style={[styles.filterChip, activeFilter === cat && styles.filterChipActive]}
                     onPress={() => setActiveFilter(cat)}
                 >
-                    <Text style={[
-                        styles.filterText, 
-                        activeFilter === cat && styles.filterTextActive
-                    ]}>
-                        {cat}
-                    </Text>
+                    <Text style={[styles.filterText, activeFilter === cat && styles.filterTextActive]}>{cat}</Text>
                 </TouchableOpacity>
             ))}
         </ScrollView>
@@ -214,18 +266,17 @@ const ReservasScreen = ({ navigation }: any) => {
         <ActivityIndicator size="large" color={COLORS.primary} style={{marginTop: 50}} />
       ) : (
         <FlatList
-          data={filteredBookings} 
+          data={visibleBookings}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderItem}
-          contentContainerStyle={{ padding: 20, paddingTop: 0 }}
+          contentContainerStyle={{ padding: 20, paddingTop: 0, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          ListFooterComponent={renderPagination} // 👈 Paginación al final
           ListEmptyComponent={
             <View style={styles.emptyState}>
                 <Text style={{fontSize: 50}}>📅</Text>
                 <Text style={styles.emptyText}>
-                    {activeFilter === 'Todos' 
-                        ? 'No tienes reservas aún.' 
-                        : `No hay reservas en "${activeFilter}".`}
+                    {activeFilter === 'Todos' ? 'No tienes reservas aún.' : `No hay reservas en "${activeFilter}".`}
                 </Text>
             </View>
           }
@@ -240,13 +291,8 @@ const styles = StyleSheet.create({
   header: { padding: 20, paddingBottom: 5, backgroundColor: COLORS.background },
   title: { fontSize: 24, fontFamily: FONTS.bold, color: COLORS.textDark },
   
-  filterChip: {
-    paddingHorizontal: 18, paddingVertical: 8, borderRadius: 20,
-    backgroundColor: COLORS.white, marginRight: 10, borderWidth: 1, borderColor: '#DDD'
-  },
-  filterChipActive: {
-    backgroundColor: COLORS.primary, borderColor: COLORS.primary
-  },
+  filterChip: { paddingHorizontal: 18, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.white, marginRight: 10, borderWidth: 1, borderColor: '#DDD' },
+  filterChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   filterText: { fontFamily: FONTS.bold, color: COLORS.textLight, fontSize: 13 },
   filterTextActive: { color: 'white' },
 
@@ -261,6 +307,14 @@ const styles = StyleSheet.create({
   statusBadge: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   statusText: { fontFamily: FONTS.bold, fontSize: 12 },
   deleteBtn: { padding: 5 },
+
+  // 👇 ESTILOS DE PAGINACIÓN
+  paginationContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, marginBottom: 20, paddingHorizontal: 10 },
+  pageBtn: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: COLORS.white, borderRadius: 10, ...SHADOWS.card },
+  pageBtnDisabled: { opacity: 0.5, backgroundColor: '#f0f0f0', elevation: 0 },
+  pageBtnText: { fontWeight: 'bold', color: COLORS.primary, marginHorizontal: 5 },
+  pageInfo: { backgroundColor: '#e0e0e0', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
+  pageText: { fontSize: 12, color: '#555' },
 
   emptyState: { alignItems: 'center', marginTop: 80 },
   emptyText: { color: COLORS.textLight, marginTop: 10, fontFamily: FONTS.regular }

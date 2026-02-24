@@ -1,14 +1,20 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, Text, Platform } from 'react-native';
-// 1. Esto es lo que mide la barra del sistema
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Importamos las pantallas
 import ProfileScreen from '../screens/ProfileScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ServicesScreen from '../screens/ServicesScreen';
 import ReservasScreen from '../screens/ReservasScreen';
+import MarketplaceScreen from '../screens/MarketplaceScreen';
+
+
+const MarketplacePlaceholder = () => (
+  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+    <Text style={{ fontSize: 20, fontWeight: 'bold' }}>Marketplace en construcción 🚧</Text>
+  </View>
+);
 
 import { COLORS, FONTS } from '../constants/theme';
 import { MainTabParamList } from '../types'; 
@@ -26,14 +32,8 @@ const MainNavigator = () => {
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textLight,
         tabBarStyle: {
-          // 👇 CORRECCIÓN CLAVE:
-          // Altura = 60 base + el espacio seguro del sistema (sea Android o iOS)
-          // Si insets.bottom es 0 (celulares viejos), usamos 10px de seguridad.
           height: 60 + (insets.bottom > 0 ? insets.bottom : 10),
-          
-          // Padding = Lo que mida la barra del sistema
           paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
-          
           paddingTop: 10,
           backgroundColor: COLORS.white,
           borderTopWidth: 0,
@@ -63,6 +63,16 @@ const MainNavigator = () => {
         name="Servicios" 
         component={ServicesScreen} 
         options={{ tabBarIcon: ({ color }) => <Text style={{fontSize: 20, color}}>🔍</Text> }}
+      />
+
+      {/* 🔥 NUEVO: Pestaña del Marketplace en el medio */}
+      <Tab.Screen 
+        name="Marketplace" 
+        component={MarketplaceScreen}  // <-- Usa el real
+        options={{ 
+                  tabBarLabel: 'Tienda',
+                  tabBarIcon: ({ color }) => <Text style={{fontSize: 20, color}}>🛒</Text> 
+        }}
       />
       
       <Tab.Screen 

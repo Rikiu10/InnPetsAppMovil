@@ -106,5 +106,11 @@ export const chatService = {
   deleteRoom: async (roomId: number) => {
     await api.delete(`/chat-rooms/${roomId}/`);
     return true;
+  },
+
+  // 🔥 NUEVA FUNCIÓN: INICIAR CHAT DE MARKETPLACE
+  createMarketplaceChat: async (itemId: number) => {
+    const response = await api.post('/chat/create-marketplace-chat/', { item_id: itemId });
+    return response.data;
   }
 };

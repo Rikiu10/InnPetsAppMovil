@@ -1,15 +1,22 @@
-import React, { useCallback } from 'react';
-import { View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { View, ActivityIndicator, Platform } from 'react-native';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts, FredokaOne_400Regular } from '@expo-google-fonts/fredoka-one';
 import { OpenSans_400Regular, OpenSans_600SemiBold } from '@expo-google-fonts/open-sans';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { AuthProvider } from './src/context/AuthContext';
+// 🔥 MAGIA NOTIFICACIONES: Imports de Expo
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
-// Imports de tus pantallas y navegación
+import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { COLORS } from './src/constants/theme';
+import api from './src/services/api';
+
+// Imports de tus pantallas
 import LoginScreen from './src/screens/LoginScreen';
 import DrawerNavigator from './src/navigation/DrawerNavigator'; 
 import ChatListScreen from './src/screens/ChatListScreen';
@@ -23,17 +30,136 @@ import CreatePetScreen from './src/screens/CreatePetScreen';
 import BookingDetailScreen from './src/screens/BookingDetailScreen';
 import CreateReviewScreen from './src/screens/CreateReviewScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
-// 👇 1. AGREGAMOS EL IMPORT QUE FALTABA
 import CreateBookingScreen from './src/screens/CreateBookingScreen';
 import EditPetScreen from './src/screens/EditPetScreen';
 import EditServiceScreen from './src/screens/EditServiceScreen';
 import CreateTicketScreen from './src/screens/CreateTicketScreen';
-
+import CreateMarketplaceItemScreen from './src/screens/CreateMarketplaceItemScreen';
+import VerifyOTPScreen from './src/screens/VerifyOTPScreen';
 import { RootStackParamList } from './src/types';
 
 SplashScreen.preventAutoHideAsync();
 
+// 🔥 MAGIA NOTIFICACIONES: Le decimos a la app cómo comportarse si llega una notificación y la app está ABIERTA
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true, 
+    shouldShowList: true,
+  }),
+});
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+const AppNavigator = () => {
+  const { isAuthenticated, loading, user } = useAuth();
+  
+  // 🔥 MAGIA NOTIFICACIONES: Ref para poder navegar desde fuera de las pantallas
+  const navigationRef = useNavigationContainerRef();
+  const responseListener = useRef<Notifications.Subscription | null>(null);
+
+  useEffect(() => {
+    // Si el usuario está logueado, registramos el token de notificaciones
+    if (isAuthenticated && user) {
+      registerForPushNotificationsAsync().then(async token => {
+        if (token) {
+          console.log("Tu Push Token es:", token);
+          
+          // 🚀 ENVIAMOS EL TOKEN AL BACKEND AUTOMÁTICAMENTE
+          try {
+            await api.patch('/users/me/', { 
+              expo_push_token: token 
+            });
+            console.log("✅ Token guardado exitosamente en Django");
+          } catch (error) {
+            console.log("❌ Error enviando el token a Django:", error);
+          }
+
+        } else {
+          console.log("No se pudo generar el token. Revisa si hay errores.");
+        }
+      });
+    }
+
+    // 🔥 MAGIA NOTIFICACIONES: Escucha cuando el usuario TOCA la notificación
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      console.log("Usuario tocó la notificación. Datos ocultos:", data);
+
+      // REDIRECCIONES SEGÚN LOS DATOS DEL BACKEND:
+      if (navigationRef.isReady()) {
+        
+        // Ejemplo 1: Si es un mensaje de chat
+        if (data.type === 'chat' && data.roomId) {
+          // @ts-ignore
+          navigationRef.navigate('ChatDetail', { 
+            roomId: data.roomId, 
+            partnerName: data.partnerName || 'Mensaje Nuevo',
+            isSupport: data.isSupport || false
+          });
+        }
+        
+        // Ejemplo 2: Si es una actualización de Reserva
+        else if (data.type === 'booking' && data.bookingId) {
+          // @ts-ignore
+          navigationRef.navigate('BookingDetail', { booking: { id: data.bookingId } });
+        }
+        
+        // Ejemplo 3: Redirección genérica a la pantalla de Notificaciones
+        else {
+          // @ts-ignore
+          navigationRef.navigate('NotificationsScreen');
+        }
+      }
+    });
+
+    return () => {
+      if (responseListener.current) {
+        responseListener.current.remove(); 
+      }
+    };
+  }, [isAuthenticated, user]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  return (
+    <NavigationContainer ref={navigationRef}>
+      <Stack.Navigator 
+        id="RootStack"
+        initialRouteName={isAuthenticated ? "MainDrawer" : "Login"}
+        screenOptions={{ headerShown: false }}
+      >
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="VerifyOTP" component={VerifyOTPScreen} />
+        <Stack.Screen name="MainDrawer" component={DrawerNavigator} />
+        <Stack.Screen name="ServiceDetail" component={ServiceDetailScreen} />
+        <Stack.Screen name="BecomeProvider" component={BecomeProviderScreen} />
+        <Stack.Screen name="CreateService" component={CreateServiceScreen} />
+        <Stack.Screen name="CreatePet" component={CreatePetScreen} />
+        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+        <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
+        <Stack.Screen name="CreateReview" component={CreateReviewScreen} />
+        <Stack.Screen name="NotificationsScreen" component={NotificationsScreen} />
+        <Stack.Screen name="CreateBookingScreen" component={CreateBookingScreen} />
+        <Stack.Screen name="ChatList" component={ChatListScreen} />
+        <Stack.Screen name="ChatDetail" component={ChatScreen} />
+        <Stack.Screen name="EditPet" component={EditPetScreen} />
+        <Stack.Screen name="EditService" component={EditServiceScreen} />
+        <Stack.Screen name="CreateTicket" component={CreateTicketScreen} />
+        <Stack.Screen name="CreateMarketplaceItem" component={CreateMarketplaceItemScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+};
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -56,43 +182,53 @@ export default function App() {
     <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
       <AuthProvider>
         <SafeAreaProvider>
-          
-          <NavigationContainer>
-            <Stack.Navigator 
-              id="RootStack"
-              initialRouteName="Login"
-              screenOptions={{ headerShown: false }}
-            >
-
-              {/* 1. Pantallas de Autenticación */}
-              <Stack.Screen name="Login" component={LoginScreen} />
-              <Stack.Screen name="Register" component={RegisterScreen} />
-
-              {/* 2. PANTALLA PRINCIPAL (Drawer) */}
-              <Stack.Screen name="MainDrawer" component={DrawerNavigator} />
-
-              {/* 3. Pantallas Secundarias */}
-              <Stack.Screen name="ServiceDetail" component={ServiceDetailScreen} />
-              <Stack.Screen name="BecomeProvider" component={BecomeProviderScreen} />
-              <Stack.Screen name="CreateService" component={CreateServiceScreen} />
-              <Stack.Screen name="CreatePet" component={CreatePetScreen} />
-              <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-              <Stack.Screen name="BookingDetail" component={BookingDetailScreen} />
-              <Stack.Screen name="CreateReview" component={CreateReviewScreen} />
-              
-              {/* 👇 2. AGREGAMOS LAS PANTALLAS NUEVAS AQUÍ */}
-              <Stack.Screen name="NotificationsScreen" component={NotificationsScreen} />
-              <Stack.Screen name="CreateBookingScreen" component={CreateBookingScreen} />
-              <Stack.Screen name="ChatList" component={ChatListScreen} />
-              <Stack.Screen name="ChatDetail" component={ChatScreen} />
-              <Stack.Screen name="EditPet" component={EditPetScreen} />
-              <Stack.Screen name="EditService" component={EditServiceScreen} />
-              <Stack.Screen name="CreateTicket" component={CreateTicketScreen} />
-            </Stack.Navigator>
-          </NavigationContainer>
-
+          <AppNavigator />
         </SafeAreaProvider>
       </AuthProvider>
     </View>
   );
+}
+
+// 🔥 MAGIA NOTIFICACIONES: Función para obtener el Push Token
+async function registerForPushNotificationsAsync() {
+  let token;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'default',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+    });
+  }
+
+  if (Device.isDevice) {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      alert('Error: Permiso denegado para notificaciones push.');
+      return null;
+    }
+    
+    try {
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+      
+      if (!projectId) {
+        alert("Error crítico: No se encontró el projectId de EAS en la app.");
+        return null;
+      }
+
+      token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    } catch (e) {
+      alert(`Fallo en getExpoPushTokenAsync: ${e}`);
+    }
+  } else {
+    alert('Debes usar un dispositivo físico. Los emuladores no soportan Push Notifications.');
+  }
+
+  return token;
 }

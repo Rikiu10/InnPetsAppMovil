@@ -22,14 +22,15 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.InnPetsMobile"
+      "package": "com.anonymous.InnPetsMobile",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "extra": {
       "eas": {
-        "projectId": "fa02fd68-9bf5-4fe1-9817-ada8c8c59e6e"
+        "projectId": "72ef79e7-a9b8-47e3-b96b-1e997f5d5b9e"
       }
     }
   }

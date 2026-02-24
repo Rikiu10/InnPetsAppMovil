@@ -1,6 +1,6 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AuthResponse, Service } from '../types';
+import { AuthResponse, Service, ServiceCategory } from '../types';
 
 // URL DEL SERVIDOR
 const API_URL = 'https://innpets.cl/api'; 
@@ -11,7 +11,6 @@ const api = axios.create({
   timeout: 10000, 
 });
 
-// INTERCEPTOR REQUEST
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem('access_token');
   if (config.url && !config.url.endsWith('/')) {
@@ -25,12 +24,51 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// INTERCEPTOR RESPONSE
 api.interceptors.response.use(
-    response => response,
-    error => {
+    (response) => response,
+    async (error) => {
+        const originalRequest = error.config;
+
+        // Si el error es 401 (No autorizado) y no hemos reintentado ya
+        if (error.response?.status === 401 && !originalRequest._retry) {
+            originalRequest._retry = true; // Marcamos para no entrar en un bucle infinito
+
+            try {
+                // Buscamos el refresh token guardado
+                const refreshToken = await AsyncStorage.getItem('refresh_token');
+                
+                if (refreshToken) {
+                    console.log("🔄 Intentando refrescar el token...");
+                    
+                    // Hacemos la petición a Django con axios puro para evitar el interceptor
+                    const response = await axios.post(`${API_URL}/auth/refresh/`, {
+                        refresh: refreshToken
+                    });
+
+                    const newAccessToken = response.data.access;
+                    
+                    // Guardamos el nuevo token de acceso
+                    await AsyncStorage.setItem('access_token', newAccessToken);
+                    
+                    // Actualizamos el header de la petición original que había fallado y la reintentamos
+                    originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+                    console.log("✅ Token refrescado con éxito. Reintentando petición...");
+                    
+                    return api(originalRequest);
+                }
+            } catch (refreshError) {
+                console.error("🚨 El Refresh Token también expiró. La sesión ha muerto.");
+                // Aquí podrías despachar tu función de 'logout' del AuthContext si la tienes,
+                // o simplemente limpiar el storage para que vuelva al Login.
+                await AsyncStorage.removeItem('access_token');
+                await AsyncStorage.removeItem('refresh_token');
+            }
+        }
+
+        // Si no es 401 o el refresh falló, devolvemos el error normal
         if (!error.response) console.error("🚨 Error de Red:", error.message);
         else console.error("⚠️ Error Servidor:", error.response.status, error.response.data);
+        
         return Promise.reject(error);
     }
 );
@@ -41,7 +79,7 @@ export const authService = {
     return response.data;
   },
   register: async (userData: any) => {
-      const response = await api.post('/users/', userData); 
+      const response = await api.post('/auth/register/', userData); 
       return response.data;
   },
   updateProfile: async (userId: number, data: any) => {
@@ -52,11 +90,29 @@ export const authService = {
     const response = await api.post('/users/switch_role/'); 
     return response.data;
   },
+  verifyOTP: async (email: string, otp: string) => {
+    // ✅ Faltaba extraer el .data
+    const response = await api.post('/auth/verify-otp/', { email, otp });
+    return response.data; 
+  },
+  resendOTP: async (email: string) => {
+    // ✅ Faltaba extraer el .data
+    const response = await api.post('/auth/resend-otp/', { email });
+    return response.data; 
+  },
 };
 
 export const servicesService = {
   getAllServices: async (): Promise<Service[]> => {
     const response = await api.get<Service[]>('/services/');
+    return response.data;
+  },
+  getCategories: async (): Promise<ServiceCategory[]> => {
+    const response = await api.get<ServiceCategory[]>('/service-categories/');
+    return response.data;
+  },
+  getMyCertifications: async () => {
+    const response = await api.get('/certifications/');
     return response.data;
   },
   updateService: async (id: number, data: any) => {
@@ -92,7 +148,6 @@ export const paymentService = {
   }
 };
 
-// 👇 NUEVO: Servicio de Notificaciones
 export const notificationService = {
     getAll: async () => {
         const response = await api.get('/notifications/');
@@ -101,9 +156,7 @@ export const notificationService = {
     getUnreadCount: async () => {
         try {
             const response = await api.get('/notifications/');
-            // Si tu backend paginas, usa response.data.results
             const all = Array.isArray(response.data) ? response.data : response.data.results || [];
-            // Filtramos las que NO están leídas
             return all.filter((n: any) => !n.is_read).length;
         } catch (error) {
             return 0;
@@ -115,6 +168,25 @@ export const notificationService = {
     markAllAsRead: async () => {
         await api.post('/notifications/mark_all_read/');
     }
+};
+
+// 🔥 SERVICIO DEL MARKETPLACE CORREGIDO
+export const marketplaceService = {
+  getAll: async () => {
+      // 👇 Cambiado a /marketplace/
+      const response = await api.get('/marketplace/');
+      return response.data;
+  },
+  create: async (data: any) => {
+      // 👇 Cambiado a /marketplace/
+      const response = await api.post('/marketplace/', data);
+      return response.data;
+  },
+  delete: async (id: number) => {
+      // 👇 Cambiado a /marketplace/
+      await api.delete(`/marketplace/${id}/`);
+      return true;
+  }
 };
 
 export default api;

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'; 
 import { 
   View, Text, TouchableOpacity, StyleSheet, Alert, 
-  ActivityIndicator, ScrollView, FlatList, Image 
+  ActivityIndicator, ScrollView, FlatList, Image, Modal, TextInput 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme'; 
@@ -14,13 +14,18 @@ import { MainTabParamList, RootStackParamList } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons'; 
 
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadFileToCloudinary } from '../services/fileService';
+import { uploadImageToCloudinary } from '../services/imageService';
+
 type ProfileScreenProps = CompositeScreenProps<
   BottomTabScreenProps<MainTabParamList, 'Perfil'>,
   CompositeScreenProps<NativeStackScreenProps<RootStackParamList>, DrawerScreenProps<any>>
 >;
 
 const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
-  const { user, setUser } = useAuth(); 
+  const { user, setUser, refreshUser } = useAuth(); 
   
   const [loading, setLoading] = useState(false);
   const [myServices, setMyServices] = useState<any[]>([]);
@@ -29,11 +34,19 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
   const [certification, setCertification] = useState<any>(null);
   const [certLevel, setCertLevel] = useState<string | null>(null);
 
+  const [allCertifications, setAllCertifications] = useState<any[]>([]);
+  const [showAppealModal, setShowAppealModal] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<any>(null);
+  const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
+  const [customFileName, setCustomFileName] = useState('');
+  const [uploading, setUploading] = useState(false);
+
   const isMounted = useRef(true);
 
   useFocusEffect(
     useCallback(() => {
       isMounted.current = true;
+      refreshUser(); 
       fetchExtraData();
       return () => { isMounted.current = false; }; 
     }, [user?.user_type, user?.id]) 
@@ -43,17 +56,14 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
       fetchCertificationLevel();
   }, []);
 
-  // 👇 LÓGICA DE FOTO DINÁMICA
   const getProfileImage = () => {
       const defaultImage = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
       if (!user) return defaultImage;
 
-      // Prioridad según el rol activo
       if (user.user_type === 'IP') {
           const photos = user.provider_profile?.photos_url;
           if (Array.isArray(photos) && photos.length > 0) return photos[0];
       } else {
-          // Modo Dueño (PP)
           if (user.pet_parent_profile?.photo_identification_url) {
               return user.pet_parent_profile.photo_identification_url;
           }
@@ -61,74 +71,114 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
       return defaultImage;
   };
 
+  // --- LÓGICA DE SUBIDA DE ARCHIVOS ---
+  const handleSelectFile = () => {
+      Alert.alert("Subir Certificado", "Elige el formato", [
+          { text: "📷 Cámara", onPress: openCamera },
+          { text: "🖼️ Galería", onPress: openGallery },
+          { text: "📄 PDF", onPress: pickDocument },
+          { text: "Cancelar", style: "cancel" }
+      ]);
+  };
+
+  const openCamera = async () => {
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.5 });
+      if (!result.canceled) {
+          setSelectedFile(result.assets[0]);
+          setFileType('image');
+          setCustomFileName(`cert_${Date.now()}.jpg`);
+      }
+  };
+
+  const openGallery = async () => {
+      const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.5 });
+      if (!result.canceled) {
+          setSelectedFile(result.assets[0]);
+          setFileType('image');
+          setCustomFileName(result.assets[0].fileName || `cert_${Date.now()}.jpg`);
+      }
+  };
+
+  const pickDocument = async () => {
+      try {
+          const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
+          if (!result.canceled && result.assets) {
+              setSelectedFile(result.assets[0]);
+              setFileType('pdf');
+              setCustomFileName(result.assets[0].name);
+          }
+      } catch (err) { console.log(err); }
+  };
+
+  const handleSubmitAppeal = async () => {
+      if (!selectedFile) return Alert.alert("Error", "Selecciona un archivo primero.");
+      if (!customFileName.trim()) return Alert.alert("Error", "Ingresa un nombre para el archivo.");
+      
+      setUploading(true);
+      try {
+          let docUrl = "";
+          if (fileType === 'image') docUrl = await uploadImageToCloudinary(selectedFile.uri);
+          else docUrl = await uploadFileToCloudinary(selectedFile.uri, customFileName, selectedFile.mimeType || 'application/pdf');
+
+          await api.post('/certifications/', { document_url: docUrl });
+          
+          Alert.alert("¡Enviado!", "Certificado subido correctamente.");
+          setShowAppealModal(false);
+          setSelectedFile(null);
+          setCustomFileName('');
+          fetchExtraData(); 
+      } catch (error) {
+          Alert.alert("Error", "No se pudo subir el archivo.");
+      } finally {
+          setUploading(false);
+      }
+  };
+
   const fetchCertificationLevel = async () => {
       try {
           const res = await api.get('/certifications/');
-          const approved = res.data.find((c: any) => c.status === 'APPROVED');
-          if (approved) {
-              setCertLevel(approved.level);
-          } else {
-              setCertLevel(null);
+          if (Array.isArray(res.data)) {
+              const approved = res.data.find((c: any) => c.status === 'APPROVED');
+              if (approved) setCertLevel(approved.level);
+              else setCertLevel(null);
           }
-      } catch (error) {
-          console.log("Error cargando nivel", error);
-      }
+      } catch (error) { console.log("Error cargando nivel", error); }
   };
 
   const getLevelBadge = () => {
       if (!certLevel) return null;
-
       let color = COLORS.success; 
       let text = "Nivel Básico (Verde)";
-
-      if (certLevel === 'INTERMEDIATE' || certLevel === 'YELLOW') {
-          color = '#F59E0B'; 
-          text = "Nivel Intermedio (Amarillo)";
-      } else if (certLevel === 'ADVANCED' || certLevel === 'RED') {
-          color = '#EF4444'; 
-          text = "Nivel Avanzado (Rojo)";
-      }
+      if (certLevel === 'INTERMEDIATE' || certLevel === 'YELLOW') { color = '#F59E0B'; text = "Nivel Intermedio (Amarillo)"; } 
+      else if (certLevel === 'ADVANCED' || certLevel === 'RED') { color = '#EF4444'; text = "Nivel Avanzado (Rojo)"; }
 
       return (
-          <View style={{
-              backgroundColor: color, 
-              paddingHorizontal: 12, 
-              paddingVertical: 6, 
-              borderRadius: 20, 
-              marginTop: 8,
-              alignSelf: 'center',
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 5
-          }}>
-              <Text style={{color: 'white', fontWeight: 'bold', fontSize: 12}}>
-                  🏅 {text}
-              </Text>
+          <View style={{ backgroundColor: color, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginTop: 8, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Text style={{color: 'white', fontWeight: 'bold', fontSize: 12}}>🏅 {text}</Text>
           </View>
       );
   };
 
   const fetchExtraData = async () => {
       if (!user) return;
-      
       try {
          if(myServices.length === 0 && myPets.length === 0) setLoading(true);
 
          try {
              const certRes = await api.get('/certifications/');
-             if (certRes.data && certRes.data.length > 0) {
-                 setCertification(certRes.data[0]);
-                 if (certRes.data[0].status === 'APPROVED') {
-                     setCertLevel(certRes.data[0].level);
-                 }
+             if (certRes.data && Array.isArray(certRes.data) && certRes.data.length > 0) {
+                 setAllCertifications(certRes.data); 
+                 const current = certRes.data[0];
+                 setCertification(current);
+                 const approved = certRes.data.find((c:any) => c.status === 'APPROVED');
+                 if (approved) setCertLevel(approved.level);
+                 else setCertLevel(null);
              } else {
-                 setCertification(null); 
-                 setCertLevel(null);
+                 setCertification(null); setCertLevel(null); setAllCertifications([]);
              }
          } catch (e) {
              console.log("Sin certificación aún");
-             setCertification(null);
-             setCertLevel(null);
+             setCertification(null); setCertLevel(null);
          }
 
          if (user.user_type === 'IP') { 
@@ -142,30 +192,21 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
             const petsRes = await api.get('/pets/');
             if(isMounted.current) setMyPets(petsRes.data);
          }
-      } catch (error) {
-         console.error("Error cargando datos extra:", error);
-      } finally {
-         if (isMounted.current) setLoading(false);
-      }
+      } catch (error) { console.error("Error cargando datos:", error); } finally { if (isMounted.current) setLoading(false); }
   };
 
   const handleSwitchRole = async () => {
     if (!user) return;
-
     if (user.user_type === 'PP') { 
-        if (certification && certification.status === 'APPROVED') {
+        if ((certification && certification.status === 'APPROVED') || certLevel) {
              toggleRoleApi();
         } else {
              Alert.alert("Acceso Restringido", "Tu solicitud aún no ha sido aprobada por un administrador.");
         }
     } else {
         Alert.alert(
-            "Modo Dueño", 
-            "Tus servicios dejarán de ser visibles temporalmente.", 
-            [
-            { text: "Cancelar", style: "cancel" }, 
-            { text: "Cambiar", onPress: toggleRoleApi }
-            ]
+            "Modo Dueño", "Tus servicios dejarán de ser visibles temporalmente.", 
+            [{ text: "Cancelar", style: "cancel" }, { text: "Cambiar", onPress: toggleRoleApi }]
         );
     }
   };
@@ -174,15 +215,13 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
     try {
       setLoading(true);
       const data = await authService.switchRole();
-      if (data.user) {
-          setUser(data.user);
-      } else {
-          if(user) setUser({ ...user, user_type: data.new_role });
-      }
+      if (data.user) setUser(data.user);
+      else if(user) setUser({ ...user, user_type: data.new_role });
+      
       setMyServices([]);
       setMyPets([]);
+      setTimeout(() => fetchExtraData(), 500); 
     } catch (error) {
-      console.error(error);
       Alert.alert("Error", "No se pudo cambiar el rol");
     } finally {
       if (isMounted.current) setLoading(false);
@@ -191,10 +230,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
   const handleCreateService = () => {
       if (!certification || certification.status !== 'APPROVED') {
-          Alert.alert(
-              "Perfil en Revisión ⏳", 
-              "No puedes publicar servicios hasta que un administrador apruebe tu certificación. Revisa el estado arriba."
-          );
+          Alert.alert("Perfil en Revisión ⏳", "No puedes publicar servicios hasta que un administrador apruebe tu certificación.");
           return;
       }
       navigation.navigate('CreateService');
@@ -202,7 +238,11 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
   const handleStatusCardClick = () => {
       if (certification && certification.status === 'PENDING') {
-          Alert.alert("Solicitud Enviada", "Tus documentos están siendo revisados. Te notificaremos cuando haya cambios.");
+          Alert.alert("Solicitud Enviada", "Tus documentos están siendo revisados.");
+          return;
+      }
+      if (certification && certification.status === 'REJECTED') {
+          setShowAppealModal(true); 
           return;
       }
       navigation.navigate('BecomeProvider');
@@ -211,8 +251,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
   const handleOptions = (item: any, type: 'pet' | 'service') => {
     const title = type === 'pet' ? item.name : item.title;
     Alert.alert(
-        "Opciones",
-        `¿Qué deseas hacer con "${title}"?`,
+        "Opciones", `¿Qué deseas hacer con "${title}"?`,
         [
             { text: "Cancelar", style: "cancel" },
             { 
@@ -223,8 +262,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                 }
             },
             { 
-                text: "Eliminar 🗑️", 
-                style: "destructive",
+                text: "Eliminar 🗑️", style: "destructive",
                 onPress: () => performDelete(item.id, type)
             }
         ]
@@ -233,17 +271,11 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
   const performDelete = async (id: number, type: 'pet' | 'service') => {
       try {
-          if (type === 'pet') {
-              await petsService.deletePet(id);
-              Alert.alert("Eliminado", "La mascota ha sido eliminada.");
-          } else {
-              await servicesService.deleteService(id);
-              Alert.alert("Eliminado", "El servicio ha sido eliminado.");
-          }
+          if (type === 'pet') await petsService.deletePet(id);
+          else await servicesService.deleteService(id);
+          Alert.alert("Eliminado", "Elemento eliminado exitosamente.");
           fetchExtraData();
-      } catch (error) {
-          Alert.alert("Error", "No se pudo eliminar el elemento.");
-      }
+      } catch (error) { Alert.alert("Error", "No se pudo eliminar."); }
   };
 
   const renderServiceItem = ({ item }: { item: any }) => {
@@ -301,8 +333,8 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
       if (certification && (certification.status === 'PENDING' || certification.status === 'REJECTED')) {
           const config = certification.status === 'PENDING' 
-            ? { bg: '#E3F2FD', border: '#64B5F6', icon: '⏳', title: 'Solicitud en Revisión', msg: 'Tu perfil está siendo evaluado por un administrador.' }
-            : { bg: '#FFEBEE', border: '#E57373', icon: '❌', title: 'Solicitud Rechazada', msg: 'Revisa los requisitos e intenta nuevamente.' };
+            ? { bg: '#E3F2FD', border: '#64B5F6', icon: '⏳', title: 'Solicitud en Revisión', msg: 'Tu perfil está siendo evaluado.' }
+            : { bg: '#FFEBEE', border: '#E57373', icon: '❌', title: 'Solicitud Rechazada', msg: 'Revisa y envía nueva documentación.' };
 
           return (
              <TouchableOpacity 
@@ -314,6 +346,10 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                       <Text style={[styles.certTitle, {color: '#333'}]}>{config.title}</Text>
                       <Text style={styles.certSubtitle}>{config.msg}</Text>
                   </View>
+                  {/* Flecha solo si es rechazado */}
+                  {certification.status === 'REJECTED' && (
+                      <Ionicons name="chevron-forward" size={24} color={COLORS.textLight} />
+                  )}
              </TouchableOpacity>
           );
       }
@@ -329,27 +365,31 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
 
       if (!certification || certification.status !== 'APPROVED') {
           return (
-             <TouchableOpacity 
-                style={[styles.certCard, { backgroundColor: '#FFF3E0', borderColor: '#FFB74D' }]}
-                onPress={handleStatusCardClick}
-             >
-                <Text style={{fontSize: 24, marginRight: 10}}>⚠️</Text>
-                <View style={{flex: 1}}>
-                    <Text style={[styles.certTitle, {color: '#E65100'}]}>Cuenta no Verificada</Text>
-                    <Text style={styles.certSubtitle}>
-                        {certification?.status === 'PENDING' ? 'Esperando aprobación...' : 'Debes enviar tu certificación.'}
-                    </Text>
-                </View>
-             </TouchableOpacity>
+             <View>
+                 <TouchableOpacity 
+                    style={[styles.certCard, { backgroundColor: '#FFF3E0', borderColor: '#FFB74D' }]}
+                    onPress={handleStatusCardClick}
+                 >
+                    <Text style={{fontSize: 24, marginRight: 10}}>⚠️</Text>
+                    <View style={{flex: 1}}>
+                        <Text style={[styles.certTitle, {color: '#E65100'}]}>Cuenta no Verificada</Text>
+                        <Text style={styles.certSubtitle}>
+                            {certification?.status === 'PENDING' ? 'Esperando aprobación...' : 'Debes enviar tu certificación.'}
+                        </Text>
+                    </View>
+                 </TouchableOpacity>
+                 
+                 <TouchableOpacity style={styles.appealBtn} onPress={() => setShowAppealModal(true)}>
+                     <Text style={styles.appealBtnText}>Subir Nueva Certificación</Text>
+                 </TouchableOpacity>
+             </View>
           );
       }
 
       return (
          <View>
              <Text style={styles.labelHeader}>Estado de tu Cuenta:</Text>
-             <TouchableOpacity 
-                style={[styles.certCard, { backgroundColor: '#E8F5E9', borderColor: '#81C784' }]}
-             >
+             <View style={[styles.certCard, { backgroundColor: '#E8F5E9', borderColor: '#81C784' }]}>
                 <Text style={{fontSize: 24, marginRight: 10}}>✅</Text>
                 <View style={{flex: 1}}>
                     <Text style={[styles.certTitle, {color: '#388E3C'}]}>Certificado Activo</Text>
@@ -357,6 +397,10 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                         {levelLabels[certification?.level] || 'Verificado'}
                     </Text>
                 </View>
+             </View>
+
+             <TouchableOpacity style={styles.appealBtn} onPress={() => setShowAppealModal(true)}>
+                 <Text style={styles.appealBtnText}>Actualizar Certificación</Text>
              </TouchableOpacity>
          </View>
       );
@@ -421,7 +465,6 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
                 </TouchableOpacity>
             </View>
             <View style={styles.avatarContainer}>
-                {/* 👇 AQUI USAMOS LA FOTO DINÁMICA */}
                 <Image source={{ uri: getProfileImage() }} style={{width: 90, height: 90, borderRadius: 45}} />
             </View>
             <Text style={styles.name}>{userName}</Text>
@@ -447,7 +490,70 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
           )}
 
           {renderContent()}
+          
+          {/* BOTÓN CERRAR SESIÓN ELIMINADO */}
       </ScrollView>
+
+      <Modal visible={showAppealModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Gestionar Certificaciones</Text>
+                
+                <Text style={{alignSelf:'flex-start', fontWeight:'bold', marginBottom:5, color: COLORS.textDark}}>Historial:</Text>
+                <View style={styles.historyList}>
+                    {allCertifications.length > 0 ? (
+                        <FlatList 
+                            data={allCertifications}
+                            keyExtractor={(item, index) => index.toString()}
+                            renderItem={({item}) => (
+                                <View style={styles.historyItem}>
+                                    <Text style={{fontSize:12, color: '#555'}}>
+                                        📅 {new Date(item.created_at).toLocaleDateString()}
+                                    </Text>
+                                    <Text style={{fontSize:12, fontWeight:'bold', color: item.status==='APPROVED'?'green':(item.status==='REJECTED'?'red':'orange')}}>
+                                        {item.status === 'APPROVED' ? 'Aprobado' : (item.status === 'REJECTED' ? 'Rechazado' : 'Pendiente')}
+                                    </Text>
+                                </View>
+                            )}
+                        />
+                    ) : <Text style={{fontSize:12, color:'#999'}}>No hay historial.</Text>}
+                </View>
+
+                <View style={styles.divider}/>
+                <Text style={{marginBottom:10, fontWeight:'bold', color: COLORS.textDark}}>Subir Nuevo:</Text>
+
+                <TouchableOpacity style={styles.uploadBox} onPress={handleSelectFile}>
+                    {selectedFile ? (
+                        <View style={{flexDirection:'row', alignItems:'center'}}>
+                            <Text style={{fontSize:24}}>{fileType === 'image' ? '🖼️' : '📄'}</Text>
+                            <Text style={{marginLeft:10, fontWeight:'bold', color:COLORS.primary}}>Archivo Listo</Text>
+                        </View>
+                    ) : (
+                        <Text style={{color:COLORS.primary, fontWeight:'bold'}}>☁️ Seleccionar Archivo</Text>
+                    )}
+                </TouchableOpacity>
+
+                {selectedFile && (
+                    <TextInput 
+                        style={styles.inputName} 
+                        value={customFileName} 
+                        onChangeText={setCustomFileName} 
+                        placeholder="Nombre del archivo (Ej: Certificado 2026)"
+                    />
+                )}
+
+                <View style={{flexDirection:'row', gap:10, marginTop:20}}>
+                    <TouchableOpacity style={styles.modalCancel} onPress={() => { setShowAppealModal(false); setSelectedFile(null); }}>
+                        <Text style={{color:'#666', fontWeight:'bold'}}>Cerrar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.modalSubmit} onPress={handleSubmitAppeal} disabled={uploading}>
+                        {uploading ? <ActivityIndicator color="#fff"/> : <Text style={{color:'#fff', fontWeight:'bold'}}>Subir</Text>}
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 };
@@ -484,6 +590,7 @@ const styles = StyleSheet.create({
   codeContainer: { backgroundColor: '#F0F0F0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, alignSelf: 'flex-start', flexDirection: 'row', marginTop: 5 },
   codeLabel: { fontSize: 12, color: '#666', marginRight: 5 },
   codeValue: { fontSize: 12, fontFamily: FONTS.bold, color: COLORS.primary, letterSpacing: 1 },
+  optionsButton: { padding: 10, marginLeft: 5, justifyContent: 'center', alignItems: 'center' }, // 👈 ERROR DUPLICADO CORREGIDO AQUÍ
 
   certCard: {
       flexDirection: 'row', alignItems: 'center', padding: 15, borderRadius: 15,
@@ -503,7 +610,20 @@ const styles = StyleSheet.create({
   ctaButtonText: { color: 'white', fontFamily: FONTS.bold },
   
   divider: { height: 1, backgroundColor: '#EEE', marginVertical: 10 },
-  optionsButton: { padding: 10, marginLeft: 5, justifyContent: 'center', alignItems: 'center' }
+
+  // 👇 ESTILOS NUEVOS
+  appealBtn: { backgroundColor: COLORS.primary, padding: 12, borderRadius: 10, alignItems: 'center', marginBottom: 20 },
+  appealBtnText: { color: '#fff', fontWeight: 'bold' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  modalContent: { backgroundColor: '#fff', padding: 20, borderRadius: 15, alignItems: 'center', maxHeight:'80%' },
+  modalTitle: { fontSize: 18, fontFamily: FONTS.bold, marginBottom: 10 },
+  historyList: { width:'100%', maxHeight:150, marginBottom:10 },
+  historyItem: { flexDirection:'row', justifyContent:'space-between', paddingVertical:8, borderBottomWidth:1, borderBottomColor:'#eee' },
+  uploadBox: { width: '100%', padding: 20, borderWidth: 1, borderColor: COLORS.primary, borderStyle: 'dashed', borderRadius: 10, alignItems: 'center', marginBottom: 10 },
+  inputName: { width: '100%', padding: 10, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#f9f9f9' },
+  modalCancel: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: '#f0f0f0', borderRadius: 8 },
+  modalSubmit: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: COLORS.primary, borderRadius: 8 }
 });
 
 export default ProfileScreen;

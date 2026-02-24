@@ -16,7 +16,7 @@ const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // <-- Comienza en true para el SplashScreen
 
   useEffect(() => {
     loadStorageData();
@@ -33,12 +33,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (storedUser) {
             setUser(JSON.parse(storedUser));
         } else {
-            await refreshUser();
+            await refreshUser(); // Intenta recuperar los datos si solo había token
         }
+      } else {
+        // Si no hay token, nos aseguramos de limpiar todo
+        setUser(null);
       }
     } catch (error) {
-      console.log("Error cargando datos:", error);
+      console.log("Error cargando datos de sesión:", error);
+      setUser(null);
     } finally {
+      // Pase lo que pase (haya sesión o no), quitamos el loading
       setLoading(false);
     }
   }
@@ -65,11 +70,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } catch (e) {
           console.error("Error al cerrar sesión:", e);
       }
-    }
+  }
 
   async function refreshUser() {
       try {
-          // 1. Intentamos obtener el ID del usuario guardado
           const storedUser = await AsyncStorage.getItem('user_data');
           let userId = null;
           
@@ -78,45 +82,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               userId = parsed.id;
           }
 
-          // 2. CORRECCIÓN CRÍTICA:
-          // Si tenemos ID, pedimos ESE usuario. Si no, pedimos genérico (pero esto es riesgoso)
-          // La mayoría de ViewSets soportan /users/{id}/
-          
           let response;
           if (userId) {
-              // Pedimos específicamente a ESTE usuario
               response = await api.get(`/users/${userId}/`);
           } else {
-              // Si no tenemos ID, usamos el endpoint general (último recurso)
-              // OJO: Esto puede devolver una lista
               response = await api.get('/users/');
           }
 
-          // 3. Manejo inteligente de la respuesta
-          // Si pedimos por ID (/users/5/), devuelve un objeto directo.
-          // Si pedimos lista (/users/), devuelve array y buscamos filtrar o tomar el [0] (riesgo)
-          
           let userData;
-          
           if (Array.isArray(response.data)) {
-              // Si devolvió lista, intentamos encontrar el nuestro si tenemos ID, si no, tomamos el primero
               if (userId) {
                   userData = response.data.find((u: any) => u.id === userId) || response.data[0];
               } else {
                   userData = response.data[0];
               }
           } else {
-              // Si es objeto, es nuestro usuario
               userData = response.data;
           }
 
           if (userData) {
             setUser(userData);
             await AsyncStorage.setItem('user_data', JSON.stringify(userData));
+          } else {
+            // Si el token es inválido y no trajo data, cerramos sesión por seguridad
+            await logout();
           }
 
       } catch (error) {
-          console.error("Error refrescando usuario", error);
+          console.error("Error refrescando usuario, cerrando sesión:", error);
+          await logout(); // Token expirado o error de API -> Fuera
       }
   }
 

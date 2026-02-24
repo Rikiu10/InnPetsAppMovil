@@ -9,39 +9,23 @@ import api from '../services/api';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToCloudinary } from '../services/imageService';
 import { REGIONES_CHILE } from '../constants/chile_data'; 
+import { ServiceCategory } from '../types';
 
-// === 1. CONFIGURACIÓN DE NIVELES Y REQUISITOS ===
-const SERVICE_REQUIREMENTS: Record<string, number> = {
-    'WALK': 1,        // Básico
-    'GROOMING': 1,    // Básico
-    'TRAINING': 1,    // Básico
-    'OTHER': 1,       // Básico
-    'DAYCARE': 2,     // Intermedio
-    'BOARDING': 3,    // Avanzado
-    'VETERINARY': 3   // Avanzado
-};
-
-const CATEGORIES = [
-  { label: "Paseo", value: "WALK" },
-  { label: "Alojamiento", value: "BOARDING" },
-  { label: "Guardería", value: "DAYCARE" },
-  { label: "Veterinaria", value: "VETERINARY" },
-  { label: "Entrenamiento", value: "TRAINING" },
-  { label: "Peluquería", value: "GROOMING" },
-  { label: "Otro", value: "OTHER" },
-];
+// === 1. MAPAS DE NIVELES (Como en la Web) ===
+const USER_LEVELS: Record<string, number> = { 'NONE': 0, 'GREEN': 1, 'YELLOW': 2, 'RED': 3 };
+const CAT_LEVELS: Record<string, number> = { 'NONE': 0, 'VERDE': 1, 'AMARILLO': 2, 'ROJO': 3 };
 
 const CreateServiceScreen = ({ navigation }: any) => {
   const [loading, setLoading] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
   
-  // Estado para saber el nivel del usuario
+  // === ESTADOS DINÁMICOS ===
+  const [dynamicCategories, setDynamicCategories] = useState<ServiceCategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
   const [userLevelValue, setUserLevelValue] = useState(0); 
   
-  // Estado de Errores
+  // Estado de Errores y Ganancias
   const [errors, setErrors] = useState<any>({});
-  
-  // ✅ NUEVO: Estado para ganancia estimada (Transparencia)
   const [estimatedEarnings, setEstimatedEarnings] = useState<string | null>(null);
 
   // Modales Geográficos
@@ -53,37 +37,40 @@ const CreateServiceScreen = ({ navigation }: any) => {
     title: '',
     description: '',
     price: '',
-    category: 'WALK', 
-    charging_unit: 'PER_HOUR', // ✅ Default: Por Hora
+    category: '', // Ahora es un ID dinámico
+    charging_unit: 'PER_SERVICE', // Default
     is_active: true,
     region: '',       
     commune: '',      
     address_ref: ''   
   });
 
-  // === 2. OBTENER NIVEL DE CERTIFICACIÓN AL CARGAR ===
+  // === 2. CARGAR DATOS INICIALES (Niveles y Categorías) ===
   useEffect(() => {
       fetchUserLevel();
+      fetchCategories();
   }, []);
 
   const fetchUserLevel = async () => {
       try {
           const res = await api.get('/certifications/');
           const approvedCert = res.data.find((c: any) => c.status === 'APPROVED');
-          
-          if (approvedCert) {
-              const levelMap: any = { 
-                  'BASIC': 1, 'GREEN': 1,
-                  'INTERMEDIATE': 2, 'YELLOW': 2,
-                  'ADVANCED': 3, 'RED': 3 
-              };
-              setUserLevelValue(levelMap[approvedCert.level] || 1); 
-          } else {
-              setUserLevelValue(0); 
-          }
+          const level = approvedCert ? approvedCert.level : 'NONE';
+          setUserLevelValue(USER_LEVELS[level] || 0);
       } catch (error) {
           console.log("Error verificando nivel", error);
           setUserLevelValue(0);
+      }
+  };
+
+  const fetchCategories = async () => {
+      try {
+          const res = await api.get('/service-categories/');
+          setDynamicCategories(res.data);
+      } catch (error) {
+          console.log("Error cargando categorías", error);
+      } finally {
+          setLoadingCategories(false);
       }
   };
 
@@ -91,28 +78,22 @@ const CreateServiceScreen = ({ navigation }: any) => {
      if (errors[field]) setErrors({ ...errors, [field]: null });
   };
 
-  // === 3. LÓGICA DE PRECIOS Y GANANCIA (NUEVO) ===
-  const calculateEarnings = async (priceVal: string, currentCategory?: string) => {
+  // === 3. LÓGICA DE PRECIOS Y GANANCIA ===
+  const calculateEarnings = async (priceVal: string, currentCategory?: string | number) => {
       if (!priceVal || isNaN(parseFloat(priceVal))) {
           setEstimatedEarnings(null);
           return;
       }
       
-      // Usamos la categoría actual o la del estado
       const catToSend = currentCategory || form.category;
-
       try {
-          // Llamamos al nuevo endpoint del backend
           const res = await api.post('/payments/calculate/', { 
               price: parseFloat(priceVal), 
               quantity: 1,
-              category: catToSend // Enviamos categoría para aplicar tasas específicas si existen
+              category: catToSend 
           });
           
-          // El backend devuelve "provider_payout" (monto neto para el proveedor)
           const payout = res.data.provider_payout;
-          
-          // Formateamos a Peso Chileno
           setEstimatedEarnings(payout.toLocaleString('es-CL'));
       } catch (error) {
           console.log("Error calculando ganancia:", error);
@@ -122,13 +103,8 @@ const CreateServiceScreen = ({ navigation }: any) => {
   const handlePriceChange = (text: string) => {
       setForm({...form, price: text});
       clearError('price');
-      
-      // Calculamos solo si hay algo escrito (mayor a 2 dígitos para evitar spam)
-      if (text.length > 2) {
-          calculateEarnings(text);
-      } else {
-          setEstimatedEarnings(null);
-      }
+      if (text.length > 2) calculateEarnings(text);
+      else setEstimatedEarnings(null);
   };
 
   // === IMAGEN ===
@@ -155,19 +131,19 @@ const CreateServiceScreen = ({ navigation }: any) => {
   };
 
   // === SELECCIÓN DE CATEGORÍA ===
-  const handleCategorySelect = (catValue: string, catLabel: string) => {
-      const requiredLevel = SERVICE_REQUIREMENTS[catValue] || 1;
+  const handleCategorySelect = (cat: ServiceCategory) => {
+      const requiredLevel = CAT_LEVELS[cat.minimum_level] || 0;
 
       if (userLevelValue < requiredLevel) {
-          let msg = requiredLevel === 2 ? "Nivel Intermedio" : requiredLevel === 3 ? "Nivel Avanzado" : "Nivel Básico";
-          Alert.alert("🔒 Categoría Bloqueada", `Para "${catLabel}" necesitas certificación de ${msg}.`);
+          let msg = cat.minimum_level === 'ROJO' ? "Avanzado (Rojo)" : cat.minimum_level === 'AMARILLO' ? "Intermedio (Amarillo)" : "Básico (Verde)";
+          Alert.alert("🔒 Categoría Bloqueada", `Para "${cat.name}" necesitas nivel ${msg}. ¡Sube tu certificación!`);
           return;
       }
-      setForm({ ...form, category: catValue });
+      setForm({ ...form, category: cat.id.toString() });
+      clearError('category');
       
-      // Si ya hay precio, recalculamos porque la tasa pudo cambiar según categoría
       if (form.price.length > 2) {
-          calculateEarnings(form.price, catValue);
+          calculateEarnings(form.price, cat.id);
       }
   };
 
@@ -179,6 +155,7 @@ const CreateServiceScreen = ({ navigation }: any) => {
       if (!form.description) { temp.description = "La descripción es obligatoria"; valid = false; }
       if (!form.price) { temp.price = "Ingresa el precio"; valid = false; }
       else if (isNaN(parseFloat(form.price))) { temp.price = "Debe ser un número"; valid = false; }
+      if (!form.category) { temp.category = "Selecciona un servicio"; valid = false; }
       if (!form.commune) { temp.commune = "Selecciona una comuna"; valid = false; }
       setErrors(temp);
       return valid;
@@ -199,15 +176,13 @@ const CreateServiceScreen = ({ navigation }: any) => {
           title: form.title,
           description: form.description,
           price: parseFloat(form.price),
-          service_type: form.category,
+          category: form.category, // 🔥 AHORA ENVIAMOS EL ID DE CATEGORY
+          charging_unit: form.charging_unit, // 🔥 UNIDAD DE COBRO
           is_active: form.is_active,
           region: form.region,
           comuna: form.commune,
           address_ref: form.address_ref,
           photos_url: uploadedUrl ? [uploadedUrl] : [],
-          
-          // ✅ ENVIAMOS LA UNIDAD DE COBRO AL BACKEND
-          charging_unit: form.charging_unit 
       };
 
       await api.post('/services/', payload);
@@ -225,7 +200,6 @@ const CreateServiceScreen = ({ navigation }: any) => {
     }
   };
 
-  // Renders de Modales
   const renderRegionItem = ({ item }: any) => (
     <TouchableOpacity style={styles.modalItem} onPress={() => { 
         setForm({...form, region: item.region, commune: ''}); 
@@ -297,74 +271,78 @@ const CreateServiceScreen = ({ navigation }: any) => {
                 {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
             </View>
 
-            {/* CATEGORÍA */}
-            <Text style={styles.label}>Tipo de Servicio</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 15 }}>
-                {CATEGORIES.map((cat) => {
-                    const reqLevel = SERVICE_REQUIREMENTS[cat.value] || 1;
-                    const isLocked = userLevelValue < reqLevel;
+            {/* CATEGORÍA DINÁMICA */}
+            <View>
+                <Text style={styles.label}>Tipo de Servicio</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 5 }}>
+                    {loadingCategories ? (
+                        <ActivityIndicator color={COLORS.primary} style={{ margin: 10 }} />
+                    ) : (
+                        dynamicCategories.map((cat) => {
+                            const reqLevel = CAT_LEVELS[cat.minimum_level] || 0;
+                            const isLocked = userLevelValue < reqLevel;
 
-                    return (
-                        <TouchableOpacity 
-                            key={cat.value} 
-                            style={[
-                                styles.catBadge, 
-                                form.category === cat.value && { backgroundColor: COLORS.secondary, borderColor: COLORS.secondary },
-                                isLocked && { backgroundColor: '#f0f0f0', borderColor: '#ddd', opacity: 0.7 }
-                            ]}
-                            onPress={() => handleCategorySelect(cat.value, cat.label)}
-                        >
-                            <Text style={[
-                                styles.catText, 
-                                form.category === cat.value ? { color: COLORS.white, fontWeight: 'bold' } : { color: COLORS.textDark },
-                                isLocked && { color: '#999' }
-                            ]}>
-                                {cat.label} {isLocked && "🔒"}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </ScrollView>
-
-            {/* ✅ SELECTOR DE MODALIDAD DE COBRO (NUEVO) */}
-            <Text style={styles.label}>Modalidad de Cobro</Text>
-            <View style={{flexDirection:'row', gap: 10, marginBottom: 15}}>
-               <TouchableOpacity 
-                   style={[styles.catBadge, form.charging_unit === 'PER_HOUR' && {backgroundColor: COLORS.secondary}]}
-                   onPress={() => setForm({...form, charging_unit: 'PER_HOUR'})}
-               >
-                   <Text style={[styles.catText, form.charging_unit === 'PER_HOUR' && {color:'white', fontWeight:'bold'}]}>
-                       ⏱️ Por Hora
-                   </Text>
-               </TouchableOpacity>
-               
-               <TouchableOpacity 
-                   style={[styles.catBadge, form.charging_unit === 'PER_SERVICE' && {backgroundColor: COLORS.secondary}]}
-                   onPress={() => setForm({...form, charging_unit: 'PER_SERVICE'})}
-               >
-                   <Text style={[styles.catText, form.charging_unit === 'PER_SERVICE' && {color:'white', fontWeight:'bold'}]}>
-                       🏷️ Precio Fijo
-                   </Text>
-               </TouchableOpacity>
+                            return (
+                                <TouchableOpacity 
+                                    key={cat.id} 
+                                    style={[
+                                        styles.catBadge, 
+                                        form.category === cat.id.toString() && { backgroundColor: COLORS.secondary, borderColor: COLORS.secondary },
+                                        isLocked && { backgroundColor: '#f0f0f0', borderColor: '#ddd', opacity: 0.7 }
+                                    ]}
+                                    onPress={() => handleCategorySelect(cat)}
+                                >
+                                    <Text style={[
+                                        styles.catText, 
+                                        form.category === cat.id.toString() ? { color: COLORS.white, fontWeight: 'bold' } : { color: COLORS.textDark },
+                                        isLocked && { color: '#999' }
+                                    ]}>
+                                        {cat.name} {isLocked && "🔒"}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })
+                    )}
+                </ScrollView>
+                {errors.category && <Text style={styles.errorText}>{errors.category}</Text>}
             </View>
+
+            {/* UNIDAD DE COBRO */}
+            <Text style={styles.label}>Modalidad de Cobro</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 15 }}>
+                {[
+                  { id: 'PER_HOUR', label: '⏱️ Por Hora' },
+                  { id: 'PER_SERVICE', label: '🏷️ Por Servicio' },
+                  { id: 'PER_NIGHT', label: '🌙 Por Noche' },
+                  { id: 'PER_VISIT', label: '🚶 Por Visita' }
+                ].map(unit => (
+                   <TouchableOpacity 
+                       key={unit.id}
+                       style={[styles.catBadge, form.charging_unit === unit.id && {backgroundColor: COLORS.secondary}]}
+                       onPress={() => setForm({...form, charging_unit: unit.id})}
+                   >
+                       <Text style={[styles.catText, form.charging_unit === unit.id && {color:'white', fontWeight:'bold'}]}>
+                           {unit.label}
+                       </Text>
+                   </TouchableOpacity>
+                ))}
+            </ScrollView>
 
             {/* PRECIO */}
             <View>
-                <Text style={styles.label}>
-                    Precio ({form.charging_unit === 'PER_HOUR' ? '$/hora' : '$/servicio'})
-                </Text>
+                <Text style={styles.label}>Precio (CLP)</Text>
                 <TextInput 
                     style={[styles.input, errors.price && styles.inputError]} 
                     placeholder="Ej: 5000" 
                     keyboardType="numeric"
                     placeholderTextColor="#999"
                     value={form.price}
-                    onChangeText={handlePriceChange} // Usamos el nuevo handler con cálculo
+                    onChangeText={handlePriceChange} 
                 />
                 {errors.price && <Text style={styles.errorText}>{errors.price}</Text>}
             </View>
 
-            {/* ✅ TARJETA DE TRANSPARENCIA (NUEVO) */}
+            {/* GANANCIA */}
             {estimatedEarnings && (
                <View style={styles.earningsCard}>
                    <Text style={styles.earningsTitle}>💰 Ganancia Estimada</Text>
@@ -379,12 +357,10 @@ const CreateServiceScreen = ({ navigation }: any) => {
             {/* UBICACIÓN */}
             <View>
                 <Text style={styles.label}>Ubicación del Servicio</Text>
-                
                 <TouchableOpacity style={[styles.selectBtn, {marginBottom: 10}]} onPress={() => setShowRegionModal(true)}>
                     <Text>{form.region || "Selecciona Región"}</Text>
                     <Text>▼</Text>
                 </TouchableOpacity>
-                
                 <TouchableOpacity 
                     style={[styles.selectBtn, !form.region && {backgroundColor:'#f5f5f5'}, errors.commune && styles.inputError]} 
                     onPress={() => form.region && setShowComunaModal(true)} 
@@ -417,7 +393,7 @@ const CreateServiceScreen = ({ navigation }: any) => {
                         errors.description && styles.inputError
                     ]} 
                     multiline 
-                    placeholder="Incluye recolección, paseo de 30 mins y agua..." 
+                    placeholder="Incluye detalles de lo que ofreces..." 
                     placeholderTextColor="#999" autoCapitalize="sentences"
                     value={form.description}
                     onChangeText={(t) => { setForm({...form, description: t}); clearError('description'); }}
@@ -468,68 +444,38 @@ const styles = StyleSheet.create({
   form: { gap: 15 },
   label: { fontFamily: FONTS.semiBold, color: COLORS.textDark, marginBottom: 5 },
   input: { 
-    backgroundColor: COLORS.white, 
-    padding: 15, 
-    borderRadius: 12, 
-    borderWidth: 1, 
-    borderColor: '#eee',
-    color: '#000000' 
+    backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', color: '#000000' 
   },
   inputError: { borderColor: COLORS.danger, borderWidth: 1 },
   errorText: { color: COLORS.danger, fontSize: 12, marginTop: 4, fontFamily: FONTS.regular },
   
   catBadge: { 
     paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, 
-    backgroundColor: '#fff', marginRight: 10, borderWidth: 1, borderColor: '#eee' 
+    backgroundColor: '#fff', marginRight: 10, borderWidth: 1, borderColor: '#eee',
+    marginBottom: 5 // Para que respire si se apilan
   },
   catText: { fontFamily: FONTS.regular, fontSize: 14 },
 
   switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
   btnPrimary: { 
-    backgroundColor: COLORS.secondary, 
-    padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 20, marginBottom: 40, ...SHADOWS.card 
+    backgroundColor: COLORS.secondary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 20, marginBottom: 40, ...SHADOWS.card 
   },
   btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 18 },
   imagePicker: { 
-    width: '100%', height: 180, backgroundColor: '#F8F9FA', borderRadius: 15, 
-    marginBottom: 5, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', 
-    borderStyle: 'dashed', borderWidth: 2, borderColor: '#DDD' 
+    width: '100%', height: 180, backgroundColor: '#F8F9FA', borderRadius: 15, marginBottom: 5, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed', borderWidth: 2, borderColor: '#DDD' 
   },
   imagePreview: { width: '100%', height: '100%', resizeMode: 'cover' },
   
-  // Estilos Modales
   selectBtn: { backgroundColor: 'white', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', flexDirection: 'row', justifyContent: 'space-between' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: 'white', borderRadius: 10, padding: 20, maxHeight: '70%' },
   modalItem: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#eee' },
   modalItemText: { fontSize: 16 },
 
-  // ✅ ESTILOS DE TRANSPARENCIA
-  earningsCard: { 
-      backgroundColor: '#E8F5E9', // Verde muy claro
-      padding: 15, 
-      borderRadius: 12, 
-      marginBottom: 15, 
-      borderWidth: 1, 
-      borderColor: '#C8E6C9' 
-  },
-  earningsTitle: { 
-      color: '#2E7D32', // Verde oscuro
-      fontWeight: 'bold', 
-      fontSize: 14, 
-      marginBottom: 5 
-  },
-  earningsValue: { 
-      color: '#1B5E20', // Verde más oscuro
-      fontWeight: 'bold', 
-      fontSize: 24 
-  },
-  earningsNote: { 
-      color: '#4caf50', 
-      fontSize: 11, 
-      marginTop: 5, 
-      fontStyle: 'italic' 
-  }
+  earningsCard: { backgroundColor: '#E8F5E9', padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: '#C8E6C9' },
+  earningsTitle: { color: '#2E7D32', fontWeight: 'bold', fontSize: 14, marginBottom: 5 },
+  earningsValue: { color: '#1B5E20', fontWeight: 'bold', fontSize: 24 },
+  earningsNote: { color: '#4caf50', fontSize: 11, marginTop: 5, fontStyle: 'italic' }
 });
 
 export default CreateServiceScreen;
