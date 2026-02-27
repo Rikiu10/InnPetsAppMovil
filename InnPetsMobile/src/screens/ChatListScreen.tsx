@@ -84,8 +84,8 @@ const ChatListScreen = ({ route, navigation }: any) => {
       }
       setCreatingTicket(true);
       try {
-          // Llama al endpoint de tu backend (Ajusta la ruta si es diferente)
-          const response = await api.post('/chat/support-ticket/', {
+          // 🔥 1. CORREGIDA LA URL EXACTA QUE PIDE DJANGO
+          const response = await api.post('/chat/create-ticket/', {
               subject: ticketSubject,
               message: ticketMessage
           });
@@ -94,7 +94,6 @@ const ChatListScreen = ({ route, navigation }: any) => {
           setTicketSubject('');
           setTicketMessage('');
           
-          // Navegar directamente a la sala recién creada
           if (response.data && response.data.room_id) {
               navigation.navigate('ChatDetail', { 
                   roomId: response.data.room_id, 
@@ -102,11 +101,20 @@ const ChatListScreen = ({ route, navigation }: any) => {
                   isSupport: true 
               });
           } else {
-              fetchRooms(); // Recargar la lista
+              fetchRooms();
           }
 
-      } catch (error) {
-          Alert.alert("Error", "No se pudo crear el ticket.");
+      } catch (error: any) {
+          console.error("Detalle del Error:", error);
+          // 🔥 2. DETECTOR EXTREMO: Si falla, ahora SÍ mostrará la sirena roja aquí
+          const status = error.response?.status || "Desconocido";
+          const serverData = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+          
+          Alert.alert(
+              "Error Técnico 🚨", 
+              `Status: ${status}\nDetalle:\n${serverData}`,
+              [{ text: "Entendido" }]
+          );
       } finally {
           setCreatingTicket(false);
       }

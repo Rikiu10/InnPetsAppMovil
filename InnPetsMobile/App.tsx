@@ -40,7 +40,7 @@ import { RootStackParamList } from './src/types';
 
 SplashScreen.preventAutoHideAsync();
 
-// 🔥 CORRECCIÓN NOTIFICACIONES: Solo las 3 opciones nativas soportadas
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,

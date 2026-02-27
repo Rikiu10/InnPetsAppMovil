@@ -80,13 +80,14 @@ const CreateTicketScreen = ({ navigation }: any) => {
                 }
             }
 
-            // 🔥 PAYLOAD LIMPIO Y UNIFICADO
+           // 🔥 CLONAMOS LA ESTRUCTURA EXACTA DE LA WEB + NUESTRA FOTO
             const payload = {
-                message: `📌 ASUNTO: ${subject}\n\n${message}`,
+                subject: subject,
+                message: message,
                 attachment_url: fileUrl 
             };
 
-            // 🔥 URL CON BARRA FINAL (MUY IMPORTANTE PARA DJANGO)
+            // 🔥 LE DEVOLVEMOS LA BARRA FINAL QUE USA LA WEB
             await api.post('/chat/create-ticket/', payload);
 
             Alert.alert("¡Enviado! 📨", "Ticket creado correctamente. Un administrador te responderá pronto.", [
@@ -96,19 +97,16 @@ const CreateTicketScreen = ({ navigation }: any) => {
         } catch (error: any) {
             console.error("Detalle del Error:", error);
             
-            // 🔥 DETECTOR DE ERRORES EXTREMO (Si sale esto, le tomas foto)
-            const status = error.response?.status || "Error de Red / Timeout";
+            // 🔥 NUESTRO DETECTOR EXTREMO (Si no ves la sirena en tu celular, ¡sigues usando la app vieja!)
+            const status = error.response?.status || "Error de Red";
             const serverData = error.response?.data ? JSON.stringify(error.response.data) : error.message;
             
             Alert.alert(
                 "Error Técnico 🚨", 
-                `Status: ${status}\n\nDetalle:\n${serverData}`,
+                `Status: ${status}\nDetalle:\n${serverData}`,
                 [{ text: "Entendido" }]
             );
-        } finally {
-            setLoading(false);
         }
-    };
 
     return (
         <SafeAreaView style={styles.container}>
