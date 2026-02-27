@@ -13,12 +13,11 @@ import { Ionicons } from '@expo/vector-icons';
 
 const ChatListScreen = ({ route, navigation }: any) => {
   const { user } = useAuth();
-  const mode = route.params?.mode || 'normal'; // 'normal' o 'support'
+  const mode = route.params?.mode || 'normal'; 
 
   const [rooms, setRooms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Estado para Crear Ticket
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [ticketSubject, setTicketSubject] = useState('');
   const [ticketMessage, setTicketMessage] = useState('');
@@ -28,13 +27,10 @@ const ChatListScreen = ({ route, navigation }: any) => {
     try {
       const data = await chatService.getRooms();
       
-      // 👇 FILTRAMOS LAS SALAS SEGÚN EL MODO
       if (mode === 'support') {
-          // Solo dejamos las que sean de tipo SUPPORT
           const supportRooms = data.filter((r: any) => r.room_type === 'SUPPORT');
           setRooms(supportRooms);
       } else {
-          // Dejamos las normales (excluimos SUPPORT)
           const normalRooms = data.filter((r: any) => r.room_type !== 'SUPPORT');
           setRooms(normalRooms);
       }
@@ -76,15 +72,30 @@ const ChatListScreen = ({ route, navigation }: any) => {
     );
   };
 
-  // --- CREAR TICKET DESDE CERO ---
   const handleCreateTicket = async () => {
       if (!ticketSubject.trim() || !ticketMessage.trim()) {
           Alert.alert("Error", "Debes llenar ambos campos.");
           return;
       }
+
+      // 🔥 LÍMITE DE 3 TICKETS POR DÍA
+      const today = new Date().toISOString().split('T')[0];
+      const todaysTickets = rooms.filter((r: any) => {
+          if (r.room_type !== 'SUPPORT' || !r.created_at) return false;
+          return r.created_at.split('T')[0] === today;
+      });
+
+      if (todaysTickets.length >= 3) {
+          Alert.alert(
+              "Límite Alcanzado 🛑", 
+              "Has alcanzado el límite máximo de 3 tickets de soporte por día. Por favor, intenta de nuevo mañana."
+          );
+          setShowTicketModal(false);
+          return;
+      }
+
       setCreatingTicket(true);
       try {
-          // 🔥 1. CORREGIDA LA URL EXACTA QUE PIDE DJANGO
           const response = await api.post('/chat/create-ticket/', {
               subject: ticketSubject,
               message: ticketMessage
@@ -105,46 +116,45 @@ const ChatListScreen = ({ route, navigation }: any) => {
           }
 
       } catch (error: any) {
-          console.error("Detalle del Error:", error);
-          // 🔥 2. DETECTOR EXTREMO: Si falla, ahora SÍ mostrará la sirena roja aquí
           const status = error.response?.status || "Desconocido";
           const serverData = error.response?.data ? JSON.stringify(error.response.data) : error.message;
-          
-          Alert.alert(
-              "Error Técnico 🚨", 
-              `Status: ${status}\nDetalle:\n${serverData}`,
-              [{ text: "Entendido" }]
-          );
+          Alert.alert("Error Técnico 🚨", `Status: ${status}\nDetalle:\n${serverData}`, [{ text: "Entendido" }]);
       } finally {
           setCreatingTicket(false);
       }
   };
-  
+
   const renderItem = ({ item }: any) => {
-    // Si es sala de soporte, forzamos la UI
     if (item.room_type === 'SUPPORT') {
+        const isTicketClosed = item.status === 'CLOSED' || item.is_active === false;
+
         return (
             <TouchableOpacity 
-                style={[styles.card, { borderColor: '#FF9800', borderWidth: 1, backgroundColor: '#FFF3E0' }]} 
+                style={[styles.card, { borderColor: isTicketClosed ? '#ccc' : '#FF9800', borderWidth: 1, backgroundColor: isTicketClosed ? '#f9f9f9' : '#FFF3E0' }]} 
                 onPress={() => navigation.navigate('ChatDetail', { roomId: item.id, partnerName: "Soporte InnPets", isSupport: true })}
                 activeOpacity={0.7}
             >
-                <View style={[styles.avatar, { backgroundColor: '#FF9800', justifyContent: 'center', alignItems: 'center' }]}>
+                <View style={[styles.avatar, { backgroundColor: isTicketClosed ? '#ccc' : '#FF9800', justifyContent: 'center', alignItems: 'center' }]}>
                     <Text style={{fontSize: 24}}>🛟</Text>
                 </View>
                 <View style={styles.info}>
                     <View style={{flexDirection:'row', justifyContent:'space-between'}}>
-                        <Text style={[styles.name, { color: '#E65100' }]}>Soporte Oficial</Text>
+                        <Text style={[styles.name, { color: isTicketClosed ? '#666' : '#E65100' }]}>Soporte Oficial</Text>
                         <Text style={styles.date}>{item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}</Text>
                     </View>
-                    <Text style={[styles.service, { color: '#666' }]}>Ticket Abierto</Text>
-                    <Text style={styles.lastMsg} numberOfLines={1}>Toca para ver o enviar mensajes...</Text>
+                    
+                    <Text style={[styles.service, { color: isTicketClosed ? '#999' : '#4CAF50', fontWeight: 'bold' }]}>
+                        {isTicketClosed ? '🔒 Ticket Cerrado' : '🟢 Ticket Abierto'}
+                    </Text>
+                    
+                    <Text style={styles.lastMsg} numberOfLines={1}>
+                        {isTicketClosed ? 'Toca para ver el historial o calificar' : 'Toca para ver o enviar mensajes...'}
+                    </Text>
                 </View>
             </TouchableOpacity>
         );
     }
 
-    // Sala Normal
     const isImOwner = user?.email === item.owner_email;
     const partnerName = isImOwner ? item.provider_name : item.owner_name;
     const rawPhoto = isImOwner ? item.provider_photo : item.owner_photo;
@@ -163,7 +173,6 @@ const ChatListScreen = ({ route, navigation }: any) => {
         activeOpacity={0.7}
       >
         <Image source={avatarSource} style={styles.avatar} />
-        
         <View style={styles.info}>
             <View style={{flexDirection:'row', justifyContent:'space-between'}}>
                 <Text style={styles.name}>{partnerName || "Usuario"}</Text>

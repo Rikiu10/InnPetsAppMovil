@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityInd
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api from '../services/api';
+import { chatService } from '../services/chatService';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadFileToCloudinary } from '../services/fileService';
@@ -70,6 +71,24 @@ const CreateTicketScreen = ({ navigation }: any) => {
 
         setLoading(true);
         try {
+            // 🔥 VALIDACIÓN 3 TICKETS POR DÍA
+            const rooms = await chatService.getRooms();
+            const today = new Date().toISOString().split('T')[0];
+            const todaysTickets = rooms.filter((r: any) => {
+                if (r.room_type !== 'SUPPORT' || !r.created_at) return false;
+                return r.created_at.split('T')[0] === today;
+            });
+
+            if (todaysTickets.length >= 3) {
+                Alert.alert(
+                    "Límite Alcanzado 🛑", 
+                    "Has alcanzado el límite máximo de 3 tickets por día. Por favor, intenta de nuevo mañana.",
+                    [{ text: "Entendido", onPress: () => navigation.goBack() }]
+                );
+                setLoading(false);
+                return;
+            }
+
             let fileUrl = null;
 
             if (selectedFile) {
@@ -80,14 +99,12 @@ const CreateTicketScreen = ({ navigation }: any) => {
                 }
             }
 
-           // 🔥 CLONAMOS LA ESTRUCTURA EXACTA DE LA WEB + NUESTRA FOTO
             const payload = {
                 subject: subject,
                 message: message,
                 attachment_url: fileUrl 
             };
 
-            // 🔥 LE DEVOLVEMOS LA BARRA FINAL QUE USA LA WEB
             await api.post('/chat/create-ticket/', payload);
 
             Alert.alert("¡Enviado! 📨", "Ticket creado correctamente. Un administrador te responderá pronto.", [
@@ -96,8 +113,6 @@ const CreateTicketScreen = ({ navigation }: any) => {
             
         } catch (error: any) {
             console.error("Detalle del Error:", error);
-            
-            // 🔥 NUESTRO DETECTOR EXTREMO (Si no ves la sirena en tu celular, ¡sigues usando la app vieja!)
             const status = error.response?.status || "Error de Red";
             const serverData = error.response?.data ? JSON.stringify(error.response.data) : error.message;
             
@@ -106,7 +121,10 @@ const CreateTicketScreen = ({ navigation }: any) => {
                 `Status: ${status}\nDetalle:\n${serverData}`,
                 [{ text: "Entendido" }]
             );
+        } finally {
+            setLoading(false);
         }
+    };
 
     return (
         <SafeAreaView style={styles.container}>
@@ -190,6 +208,6 @@ const styles = StyleSheet.create({
     deleteFileBtn: { backgroundColor: '#FFEBEE', width: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FFCDD2' },
     btn: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', ...SHADOWS.card },
     btnText: { color: 'white', fontFamily: FONTS.bold, fontSize: 16 }
-})
-}
+});
+
 export default CreateTicketScreen;

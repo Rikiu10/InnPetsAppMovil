@@ -21,15 +21,17 @@ const ChatScreen = ({ route, navigation }: any) => {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   
-  // ESTADO PARA CONTROLAR SI ES SOPORTE
   const [isSupportRoom, setIsSupportRoom] = useState(paramIsSupport || false);
-  // 🔥 NUEVO ESTADO: Para saber si el ticket está cerrado
   const [isClosed, setIsClosed] = useState(false);
 
-  // Estados para Archivos
   const [attachment, setAttachment] = useState<any>(null); 
   const [customFileName, setCustomFileName] = useState(''); 
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
 
@@ -37,16 +39,13 @@ const ChatScreen = ({ route, navigation }: any) => {
     if (!roomId) { navigation.goBack(); }
   }, [roomId]);
 
-  // ✅ VERIFICAR ESTADO REAL DE LA SALA (Tipo y Status)
   const fetchRoomDetails = useCallback(async () => {
       try {
           const response = await api.get(`/chat-rooms/${roomId}/`);
           if (response.data) {
-              // Verificamos si es soporte
               if (response.data.room_type === 'SUPPORT') {
                   setIsSupportRoom(true);
               }
-              // 🔥 Verificamos si está cerrado
               if (response.data.status === 'CLOSED' || response.data.is_active === false) {
                   setIsClosed(true);
               }
@@ -60,7 +59,6 @@ const ChatScreen = ({ route, navigation }: any) => {
       fetchRoomDetails();
   }, [fetchRoomDetails]);
 
-
   const fetchMessages = async () => {
     if (!roomId) return;
     try {
@@ -72,7 +70,6 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   useEffect(() => {
     fetchMessages(); 
-    // Solo hacemos polling si NO está cerrado
     if (!isClosed) {
         const interval = setInterval(fetchMessages, 3000); 
         return () => clearInterval(interval);
@@ -85,7 +82,6 @@ const ChatScreen = ({ route, navigation }: any) => {
     }
   }, [messages]);
 
-  // 👇 FUNCIÓN CERRAR TICKET (YA CORREGIDA LA URL)
   const handleCloseTicket = () => {
     Alert.alert(
       "Cerrar Ticket",
@@ -98,19 +94,15 @@ const ChatScreen = ({ route, navigation }: any) => {
           onPress: async () => {
             try {
               setLoading(true);
-              // URL CORRECTA
-              await api.patch(`/chat-rooms/${roomId}/`, { 
-                  status: 'CLOSED' 
-              });
+              await api.patch(`/chat-rooms/${roomId}/`, { status: 'CLOSED' });
               
-              Alert.alert("Éxito", "El ticket ha sido marcado como resuelto.");
-              // 🔥 ACTUALIZAMOS EL ESTADO LOCAL INMEDIATAMENTE
               setIsClosed(true);
               setLoading(false);
-              // Opcional: Volver atrás
-              // navigation.goBack(); 
+              
+              Alert.alert("¡Ticket Resuelto!", "Por favor califica nuestra atención.", [
+                  { text: "Calificar", onPress: () => setShowReviewModal(true) }
+              ]);
             } catch (error) {
-              console.error(error);
               Alert.alert("Error", "No se pudo cerrar el ticket.");
               setLoading(false);
             }
@@ -120,7 +112,29 @@ const ChatScreen = ({ route, navigation }: any) => {
     );
   };
 
-  // --- SELECCIÓN DE ARCHIVOS (SIN CAMBIOS) ---
+  const handleSubmitReview = async () => {
+      if (rating === 0) {
+          Alert.alert("Error", "Por favor selecciona al menos una estrella ⭐.");
+          return;
+      }
+      setSubmittingReview(true);
+      try {
+          await api.post('/chat/support-reviews/', {
+              room_id: roomId,
+              rating: rating,
+              comment: reviewComment
+          });
+          Alert.alert("¡Gracias!", "Tu calificación ha sido enviada exitosamente.");
+          setShowReviewModal(false);
+      } catch (error: any) {
+          const detail = error.response?.data?.detail || "Ya enviaste una reseña para este ticket o ocurrió un error.";
+          Alert.alert("Aviso", detail);
+          setShowReviewModal(false);
+      } finally {
+          setSubmittingReview(false);
+      }
+  };
+
   const openCamera = async () => {
       setShowAttachMenu(false);
       const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -157,9 +171,7 @@ const ChatScreen = ({ route, navigation }: any) => {
       } catch (err) { console.log(err); }
   };
 
-  // --- ENVÍO DE MENSAJE ---
   const handleSend = async () => {
-    // 🔥 BLOQUEO ADICIONAL POR SEGURIDAD
     if (isClosed) return;
     if (!text.trim() && !attachment) return; 
     
@@ -235,7 +247,6 @@ const ChatScreen = ({ route, navigation }: any) => {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       
-      {/* HEADER DINÁMICO */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={28} color={COLORS.primary} />
@@ -246,12 +257,10 @@ const ChatScreen = ({ route, navigation }: any) => {
                 {isSupportRoom ? "🛡️ Soporte InnPets" : partnerName}
             </Text>
             <Text style={styles.headerSubtitle}>
-                {/* 🔥 MUESTRA EL ESTADO REAL */}
                 {isClosed ? "Ticket Cerrado 🔒" : (isSupportRoom ? "Ticket Abierto" : "En línea")}
             </Text>
         </View>
 
-        {/* 👇 BOTÓN VISIBLE SOLO EN SOPORTE Y SI NO ESTÁ CERRADO */}
         {isSupportRoom && !isClosed && (
             <TouchableOpacity onPress={handleCloseTicket} style={styles.closeTicketBtn}>
                 <Ionicons name="checkmark-circle-outline" size={16} color="#D32F2F" style={{marginRight: 4}} />
@@ -270,7 +279,6 @@ const ChatScreen = ({ route, navigation }: any) => {
             ListEmptyComponent={!loading ? <Text style={{textAlign:'center', marginTop:50, color:'#999'}}>Inicia la conversación 👋</Text> : <ActivityIndicator style={{marginTop:50}} color={COLORS.primary}/>}
         />
 
-        {/* PREVIEW + RENOMBRAR (Solo si no está cerrado) */}
         {attachment && !isClosed && (
             <View style={styles.previewContainer}>
                 <View style={styles.previewBox}>
@@ -290,11 +298,26 @@ const ChatScreen = ({ route, navigation }: any) => {
             </View>
         )}
 
-        {/* 🔥 AREA DE INPUT BLOQUEADA SI ESTÁ CERRADO */}
         <View style={[styles.inputWrapper, { paddingBottom: Platform.OS === 'android' ? insets.bottom + 10 : 10 }]}>
             {isClosed ? (
                 <View style={styles.closedTicketBanner}>
                     <Text style={styles.closedTicketTextBanner}>Este ticket ha sido finalizado. 🔒</Text>
+                    
+                    {/* 🔥 BOTONES CUANDO ESTÁ CERRADO (Calificar + Crear Nuevo) */}
+                    {isSupportRoom && (
+                        <View style={{flexDirection: 'row', gap: 10, width: '100%', justifyContent: 'center'}}>
+                            <TouchableOpacity onPress={() => setShowReviewModal(true)} style={[styles.rateBtn, {backgroundColor: '#FF9800'}]}>
+                                <Text style={styles.rateBtnText}>⭐ Calificar</Text>
+                            </TouchableOpacity>
+                            
+                            <TouchableOpacity 
+                                onPress={() => navigation.navigate('CreateTicket')} 
+                                style={[styles.rateBtn, {backgroundColor: COLORS.primary}]}
+                            >
+                                <Text style={styles.rateBtnText}>➕ Nuevo Ticket</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                 </View>
             ) : (
                 <View style={styles.inputContainer}>
@@ -319,7 +342,6 @@ const ChatScreen = ({ route, navigation }: any) => {
         </View>
       </KeyboardAvoidingView>
 
-      {/* MODAL ADJUNTOS (Solo si no está cerrado) */}
       {!isClosed && (
           <Modal transparent visible={showAttachMenu} animationType="fade">
             <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowAttachMenu(false)}>
@@ -344,6 +366,46 @@ const ChatScreen = ({ route, navigation }: any) => {
             </TouchableOpacity>
           </Modal>
       )}
+
+      <Modal transparent visible={showReviewModal} animationType="slide">
+          <View style={styles.modalOverlayCenter}>
+              <View style={styles.reviewModalContent}>
+                  <Text style={styles.reviewTitle}>Califica nuestro Soporte 🛡️</Text>
+                  <Text style={styles.reviewSubtitle}>¿Qué tal te pareció la atención recibida en este ticket?</Text>
+                  
+                  <View style={styles.starsContainer}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                          <TouchableOpacity key={star} onPress={() => setRating(star)}>
+                              <Ionicons 
+                                  name={star <= rating ? "star" : "star-outline"} 
+                                  size={45} 
+                                  color={star <= rating ? "#FFD700" : "#ccc"} 
+                                  style={{ marginHorizontal: 5 }} 
+                              />
+                          </TouchableOpacity>
+                      ))}
+                  </View>
+
+                  <TextInput 
+                      style={styles.reviewInput}
+                      placeholder="Deja un comentario (opcional)..."
+                      multiline
+                      value={reviewComment}
+                      onChangeText={setReviewComment}
+                  />
+
+                  <View style={{flexDirection: 'row', gap: 10, marginTop: 15}}>
+                      <TouchableOpacity style={[styles.modalBtn, {backgroundColor: '#eee'}]} onPress={() => setShowReviewModal(false)}>
+                          <Text style={{color: '#333', fontWeight: 'bold'}}>Cancelar</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity style={[styles.modalBtn, {backgroundColor: '#4CAF50'}]} onPress={handleSubmitReview} disabled={submittingReview}>
+                          {submittingReview ? <ActivityIndicator color="#fff" /> : <Text style={{color: '#fff', fontWeight: 'bold'}}>Enviar Reseña</Text>}
+                      </TouchableOpacity>
+                  </View>
+              </View>
+          </View>
+      </Modal>
 
     </SafeAreaView>
   );
@@ -371,9 +433,10 @@ const styles = StyleSheet.create({
   inputWrapper: { padding: 10, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F8F8', borderRadius: 25, paddingHorizontal: 5, paddingVertical: 5 },
   
-  // 🔥 ESTILOS PARA TICKET CERRADO
-  closedTicketBanner: { backgroundColor: '#eee', padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  closedTicketTextBanner: { color: '#666', fontFamily: FONTS.bold },
+  closedTicketBanner: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  closedTicketTextBanner: { color: '#666', fontFamily: FONTS.bold, marginBottom: 10 },
+  rateBtn: { flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 20, alignItems: 'center' },
+  rateBtnText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
 
   attachBtn: { padding: 10 },
   input: { flex: 1, paddingHorizontal: 10, paddingVertical: 10, maxHeight: 100, fontSize: 15, color: COLORS.textDark, fontFamily: FONTS.regular },
@@ -389,6 +452,14 @@ const styles = StyleSheet.create({
   modalOption: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   iconBox: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   modalText: { fontSize: 16, color: '#333' },
+
+  modalOverlayCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
+  reviewModalContent: { backgroundColor: 'white', borderRadius: 20, padding: 25, alignItems: 'center' },
+  reviewTitle: { fontSize: 20, fontFamily: FONTS.bold, color: '#333', marginBottom: 10 },
+  reviewSubtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 20 },
+  starsContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 20 },
+  reviewInput: { width: '100%', borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 15, height: 100, textAlignVertical: 'top', backgroundColor: '#f9f9f9' },
+  modalBtn: { flex: 1, padding: 15, borderRadius: 10, alignItems: 'center' }
 });
 
 export default ChatScreen;
