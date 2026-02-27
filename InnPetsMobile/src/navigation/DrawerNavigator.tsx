@@ -1,7 +1,7 @@
 import React from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { COLORS, FONTS } from '../constants/theme';
-import { View, Text } from 'react-native';
+import { Ionicons } from '@expo/vector-icons'; // 🔥 Cambiamos Emojis por Íconos profesionales
 
 // Importa tus pantallas
 import MainNavigator from './MainNavigator'; 
@@ -21,19 +21,40 @@ const DrawerNavigator = () => {
         headerShown: false,
         drawerActiveBackgroundColor: COLORS.primaryLight,
         drawerActiveTintColor: COLORS.primary,
-        drawerInactiveTintColor: '#333',
+        drawerInactiveTintColor: '#4A4A4A',
         // @ts-ignore
-        drawerLabelStyle: { marginLeft: 10, fontFamily: FONTS.semiBold, fontSize: 15 }
+        drawerLabelStyle: { 
+            fontFamily: FONTS.semiBold, 
+            fontSize: 15,
+            marginLeft: -10, // Acerca el texto al ícono para que no quede tanto espacio en blanco
+        },
+        drawerItemStyle: {
+            borderRadius: 12, // 🔥 Bordes redondeados en la selección
+            paddingHorizontal: 8,
+            marginVertical: 4,
+        }
       }}
     >
-      <Drawer.Screen name="Inicio" component={MainNavigator} />
-      <Drawer.Screen name="Mi Perfil" component={ProfileScreen} />
+      <Drawer.Screen 
+        name="Inicio" 
+        component={MainNavigator} 
+        options={{
+          drawerIcon: ({color}) => <Ionicons name="home-outline" size={22} color={color} />
+        }}
+      />
+      <Drawer.Screen 
+        name="Mi Perfil" 
+        component={ProfileScreen} 
+        options={{
+          drawerIcon: ({color}) => <Ionicons name="person-outline" size={22} color={color} />
+        }}
+      />
       <Drawer.Screen 
         name="Reservas" 
         component={ReservasScreen} 
         options={{
           title: 'Mis Reservas',
-          drawerIcon: ({color}) => <Text style={{fontSize: 20, color}}>📅</Text>
+          drawerIcon: ({color}) => <Ionicons name="calendar-outline" size={22} color={color} />
         }}
       />
 
@@ -43,7 +64,7 @@ const DrawerNavigator = () => {
         initialParams={{ mode: 'normal' }} // 👈 IMPORTANTE
         options={{
           title: 'Mis Mensajes',
-          drawerIcon: ({color}) => <Text style={{fontSize: 20, color}}>💬</Text>
+          drawerIcon: ({color}) => <Ionicons name="chatbubbles-outline" size={22} color={color} />
         }}
       />
 

@@ -5,61 +5,81 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
-import api, { marketplaceService } from '../services/api'; // Importamos api general también
+import api, { marketplaceService } from '../services/api'; 
 import { uploadImageToCloudinary } from '../services/imageService';
 
 const CreateMarketplaceItemScreen = ({ navigation }: any) => {
   const [loading, setLoading] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
   
-  // 🔥 ESTADOS PARA UBICACIÓN
+  // 🔥 ESTADOS MEJORADOS PARA UBICACIÓN (Filtro Local)
   const [regions, setRegions] = useState<any[]>([]);
-  const [communes, setCommunes] = useState<any[]>([]);
+  const [allCommunes, setAllCommunes] = useState<any[]>([]); // Aquí guardamos TODAS las comunas
+  const [filteredCommunes, setFilteredCommunes] = useState<any[]>([]); // Aquí solo las que mostraremos
+  
   const [showRegionModal, setShowRegionModal] = useState(false);
   const [showCommuneModal, setShowCommuneModal] = useState(false);
-  const [loadingCommunes, setLoadingCommunes] = useState(false);
+
+  // ESTADOS PARA TARIFAS DINÁMICAS
+  const [tasaComision, setTasaComision] = useState<number>(5); 
+  const [tarifaMinima, setTarifaMinima] = useState<number>(1000);
 
   const [form, setForm] = useState({
     title: '',
     description: '',
     price: '',
-    condition: 'NEW', // 'NEW' o 'USED'
+    condition: 'NEW', 
     selectedRegion: null as any,
     selectedCommune: null as any,
   });
 
   const [errors, setErrors] = useState<any>({});
 
-  // CARGAR REGIONES AL INICIO
+  const priceNum = parseFloat(form.price);
+  const isValidPrice = !isNaN(priceNum) && priceNum > 0;
+  const comisionCalculada = isValidPrice ? Math.max(priceNum * (tasaComision / 100), tarifaMinima) : 0;
+  const dineroARecibir = isValidPrice ? Math.max(0, priceNum - comisionCalculada) : 0;
+
   useEffect(() => {
+      // 🔥 1. Descargamos TODAS las regiones y comunas de inmediato
       api.get('/regions/').then(res => setRegions(res.data)).catch(err => console.error("Error regiones:", err));
+      api.get('/communes/').then(res => setAllCommunes(res.data)).catch(err => console.error("Error comunas:", err));
+      
+      // 2. Cargar Tarifas
+      api.get('/marketplace/settings/').then(res => {
+          if (res.data) {
+              setTasaComision(parseFloat(res.data.commission_percentage));
+              setTarifaMinima(res.data.minimum_fee);
+          }
+      }).catch(err => console.log("Error tarifas:", err));
   }, []);
 
-  // CARGAR COMUNAS CUANDO CAMBIA LA REGIÓN
-  const handleSelectRegion = async (region: any) => {
+  const handleSelectRegion = (region: any) => {
       setForm({ ...form, selectedRegion: region, selectedCommune: null });
       setShowRegionModal(false);
-      setLoadingCommunes(true);
-      try {
-          // Asumiendo que tu API de comunas filtra por ?region=ID
-          const res = await api.get(`/communes/?region=${region.id}`);
-          setCommunes(res.data);
-      } catch (error) {
-          console.error("Error comunas:", error);
-          Alert.alert("Error", "No se pudieron cargar las comunas.");
-      } finally {
-          setLoadingCommunes(false);
-      }
+      
+      // 🔥 FILTRO LOCAL INSTANTÁNEO (Esta es la magia para que no quede en blanco)
+      const filtered = allCommunes.filter(c => 
+          c.region === region.id || 
+          c.region_id === region.id || 
+          (c.region && c.region.id === region.id)
+      );
+      setFilteredCommunes(filtered);
       clearError('region');
   };
 
+  const handleSelectCommune = (commune: any) => {
+      setForm({ ...form, selectedCommune: commune });
+      setShowCommuneModal(false);
+      clearError('commune');
+  };
 
   const clearError = (field: string) => {
       if (errors[field]) setErrors({ ...errors, [field]: null });
   };
 
-  // 🔥 NUEVO HANDLER PARA FOTO (CÁMARA U GALERÍA)
   const handlePhotoAction = () => {
     Alert.alert(
         "Foto del Producto",
@@ -84,10 +104,7 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
 
   const openGallery = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permissionResult.granted === false) {
-        Alert.alert("Permiso necesario", "Necesitamos acceso a tu galería.");
-        return;
-    }
+    if (permissionResult.granted === false) return Alert.alert("Permiso necesario.");
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -106,11 +123,11 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
       if (!imageUri) { temp.image = "Sube al menos una foto del producto"; valid = false; }
       if (!form.title) { temp.title = "El título es obligatorio"; valid = false; }
       if (!form.description) { temp.description = "La descripción es obligatoria"; valid = false; }
-      if (!form.price || isNaN(parseFloat(form.price))) { temp.price = "Ingresa un precio válido"; valid = false; }
+      if (!isValidPrice) { temp.price = "Ingresa un precio válido"; valid = false; }
+      if (isValidPrice && priceNum <= comisionCalculada) { temp.price = "El precio debe ser mayor a la tarifa de publicación."; valid = false; }
       
-      // Validar Ubicación
-      if (!form.selectedRegion) { temp.region = "Selecciona una región"; valid = false; }
-      if (!form.selectedCommune) { temp.commune = "Selecciona una comuna"; valid = false; }
+      if (!form.selectedRegion) { temp.region = "Requerido"; valid = false; }
+      if (!form.selectedCommune) { temp.commune = "Requerido"; valid = false; }
 
       setErrors(temp);
       return valid;
@@ -127,22 +144,21 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
          if (url) uploadedUrl = url;
       }
 
-      // 🔥 Payload actualizado con ubicación (Asegúrate que tu backend lo soporte)
       const payload = {
           title: form.title,
           description: form.description,
-          price: parseFloat(form.price),
+          price: priceNum,
           condition: form.condition,
           photos_url: uploadedUrl ? [uploadedUrl] : [],
-          region: form.selectedRegion.id,   // Ojo: Revisa cómo lo espera tu backend (ID o nombre)
-          commune: form.selectedCommune.id // Ojo: Revisa cómo lo espera tu backend
+          region: form.selectedRegion.id, 
+          commune: form.selectedCommune.id       
       };
 
       await marketplaceService.create(payload);
 
       Alert.alert(
           "¡Publicación Enviada! 🚀", 
-          "Tu producto pasará por una breve revisión de nuestro equipo antes de ser visible en la tienda.", 
+          "Tu producto ha sido enviado a revisión. Te notificaremos cuando sea aprobado para que puedas realizar el pago de publicación.", 
           [{ text: "Entendido", onPress: () => navigation.goBack() }]
       );
       
@@ -154,144 +170,166 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
     }
   };
 
-  const renderModalItem = (item: any, onPress: () => void) => (
-    <TouchableOpacity style={styles.modalItem} onPress={onPress}>
-        <Text style={styles.modalItemText}>{item.name}</Text>
-    </TouchableOpacity>
-  );
-
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={{fontSize: 24, color: '#000'}}>⬅️</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={COLORS.textDark} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Vender Producto</Text>
-        <View style={{width: 24}}/> 
+        <View style={{width: 40}}/> 
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: 20 }}>
+        <ScrollView contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
             
-            {/* FOTO CON OPCIÓN DE CÁMARA */}
-            <TouchableOpacity style={[styles.imagePicker, errors.image && styles.inputError]} onPress={handlePhotoAction}>
-                {imageUri ? (
-                    <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-                ) : (
-                    <View style={{ alignItems: 'center' }}>
-                        <Text style={{fontSize: 40}}>📸</Text>
-                        <Text style={{color: COLORS.primary, marginTop: 5}}>Subir Foto</Text>
+            <View style={styles.card}>
+                <Text style={styles.label}>Foto Principal</Text>
+                <TouchableOpacity style={[styles.imagePicker, errors.image && styles.inputError]} onPress={handlePhotoAction}>
+                    {imageUri ? (
+                        <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+                    ) : (
+                        <View style={{ alignItems: 'center' }}>
+                            <Ionicons name="camera" size={40} color={COLORS.primary} />
+                            <Text style={{color: COLORS.primary, marginTop: 8, fontFamily: FONTS.semiBold}}>Toca para subir foto</Text>
+                        </View>
+                    )}
+                </TouchableOpacity>
+                {errors.image && <Text style={styles.errorText}>{errors.image}</Text>}
+            </View>
+
+            <View style={styles.card}>
+                <Text style={styles.label}>¿Qué vas a vender?</Text>
+                <TextInput 
+                    style={[styles.input, errors.title && styles.inputError]} 
+                    placeholder="Ej: Cama para perro talla L" 
+                    placeholderTextColor="#999"
+                    value={form.title}
+                    onChangeText={(t) => { setForm({...form, title: t}); clearError('title'); }}
+                />
+                {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
+
+                <Text style={[styles.label, {marginTop: 20}]}>Condición</Text>
+                <View style={{flexDirection: 'row', gap: 10}}>
+                    <TouchableOpacity 
+                        style={[styles.conditionBtn, form.condition === 'NEW' && styles.conditionBtnActive]}
+                        onPress={() => setForm({...form, condition: 'NEW'})}
+                    >
+                        <Text style={[styles.conditionText, form.condition === 'NEW' && styles.conditionTextActive]}>✨ Nuevo</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[styles.conditionBtn, form.condition === 'USED' && styles.conditionBtnActive]}
+                        onPress={() => setForm({...form, condition: 'USED'})}
+                    >
+                        <Text style={[styles.conditionText, form.condition === 'USED' && styles.conditionTextActive]}>♻️ Usado</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            <View style={styles.card}>
+                <Text style={styles.label}>¿Dónde se encuentra?</Text>
+                <View style={{flexDirection: 'row', gap: 10}}>
+                    <View style={{flex: 1}}>
+                        <TouchableOpacity 
+                            style={[styles.selectBtn, errors.region && styles.inputError]} 
+                            onPress={() => setShowRegionModal(true)}
+                        >
+                            <Text style={{color: form.selectedRegion ? COLORS.textDark : '#999', flex: 1}} numberOfLines={1}>
+                                {form.selectedRegion?.name || "Región"}
+                            </Text>
+                            <Ionicons name="chevron-down" size={16} color="#999" />
+                        </TouchableOpacity>
+                        {errors.region && <Text style={styles.errorText}>{errors.region}</Text>}
+                    </View>
+
+                    <View style={{flex: 1}}>
+                        <TouchableOpacity 
+                            style={[styles.selectBtn, errors.commune && styles.inputError]} 
+                            onPress={() => form.selectedRegion ? setShowCommuneModal(true) : Alert.alert("Primero selecciona una región")}
+                            disabled={!form.selectedRegion}
+                        >
+                            {/* 🔥 MOSTRAR COMUNAS */}
+                            <Text style={{color: form.selectedCommune ? COLORS.textDark : '#999', flex: 1}} numberOfLines={1}>
+                                {form.selectedCommune?.name || "Comuna"}
+                            </Text>
+                            <Ionicons name="chevron-down" size={16} color="#999" />
+                        </TouchableOpacity>
+                        {errors.commune && <Text style={styles.errorText}>{errors.commune}</Text>}
+                    </View>
+                </View>
+            </View>
+
+            <View style={styles.card}>
+                <Text style={styles.label}>Descripción</Text>
+                <TextInput 
+                    style={[styles.input, { height: 100, textAlignVertical: 'top' }, errors.description && styles.inputError]} 
+                    multiline 
+                    placeholder="Detalles, medidas, marca, motivo de venta..." 
+                    placeholderTextColor="#999"
+                    value={form.description}
+                    onChangeText={(t) => { setForm({...form, description: t}); clearError('description'); }}
+                />
+                {errors.description && <Text style={styles.errorText}>{errors.description}</Text>}
+            </View>
+
+            <View style={styles.card}>
+                <Text style={styles.label}>Precio de Venta (CLP)</Text>
+                <View style={styles.priceInputContainer}>
+                    <Text style={styles.currencySymbol}>$</Text>
+                    <TextInput 
+                        style={[styles.inputPrice, errors.price && {color: COLORS.danger}]} 
+                        placeholder="0" 
+                        placeholderTextColor="#999"
+                        keyboardType="numeric"
+                        value={form.price}
+                        onChangeText={(t) => { setForm({...form, price: t}); clearError('price'); }}
+                    />
+                </View>
+                {errors.price && <Text style={styles.errorText}>{errors.price}</Text>}
+
+                {isValidPrice && (
+                    <View style={styles.feeSummaryBox}>
+                        <View style={styles.feeRow}>
+                            <Text style={styles.feeLabel}>Precio del producto</Text>
+                            <Text style={styles.feeValue}>${priceNum.toLocaleString('es-CL')}</Text>
+                        </View>
+                        <View style={styles.feeRow}>
+                            <Text style={styles.feeLabel}>
+                                Tarifa por publicar ({comisionCalculada === tarifaMinima ? 'Mínimo' : `${tasaComision}%`})
+                            </Text>
+                            <Text style={styles.feeValueRed}>- ${comisionCalculada.toLocaleString('es-CL')}</Text>
+                        </View>
+                        <View style={[styles.feeRow, { borderTopWidth: 1, borderTopColor: '#E0E0E0', marginTop: 8, paddingTop: 8 }]}>
+                            <Text style={styles.feeTotalLabel}>Recibirás aprox.</Text>
+                            <Text style={styles.feeTotalValue}>${dineroARecibir.toLocaleString('es-CL')}</Text>
+                        </View>
                     </View>
                 )}
-            </TouchableOpacity>
-            {errors.image && <Text style={[styles.errorText, {textAlign: 'center', marginBottom: 15}]}>{errors.image}</Text>}
-
-            {/* TÍTULO */}
-            <Text style={styles.label}>¿Qué vas a vender?</Text>
-            <TextInput 
-                style={[styles.input, errors.title && styles.inputError]} 
-                placeholder="Ej: Cama para perro talla L" 
-                value={form.title}
-                onChangeText={(t) => { setForm({...form, title: t}); clearError('title'); }}
-            />
-            {errors.title && <Text style={styles.errorText}>{errors.title}</Text>}
-
-            {/* CONDICIÓN */}
-            <Text style={[styles.label, {marginTop: 15}]}>Condición</Text>
-            <View style={{flexDirection: 'row', gap: 10}}>
-                <TouchableOpacity 
-                    style={[styles.conditionBtn, form.condition === 'NEW' && styles.conditionBtnActive]}
-                    onPress={() => setForm({...form, condition: 'NEW'})}
-                >
-                    <Text style={[styles.conditionText, form.condition === 'NEW' && styles.conditionTextActive]}>✨ Nuevo</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                    style={[styles.conditionBtn, form.condition === 'USED' && styles.conditionBtnActive]}
-                    onPress={() => setForm({...form, condition: 'USED'})}
-                >
-                    <Text style={[styles.conditionText, form.condition === 'USED' && styles.conditionTextActive]}>♻️ Usado</Text>
-                </TouchableOpacity>
             </View>
 
-            {/* PRECIO */}
-            <Text style={[styles.label, {marginTop: 15}]}>Precio (CLP)</Text>
-            <TextInput 
-                style={[styles.input, errors.price && styles.inputError]} 
-                placeholder="Ej: 15000" 
-                keyboardType="numeric"
-                value={form.price}
-                onChangeText={(t) => { setForm({...form, price: t}); clearError('price'); }}
-            />
-            {errors.price && <Text style={styles.errorText}>{errors.price}</Text>}
-            
-            {/* 🔥 SELECTORES DE UBICACIÓN */}
-            <View style={{flexDirection: 'row', gap: 10, marginTop: 15}}>
-                {/* REGIÓN */}
-                <View style={{flex: 1}}>
-                    <Text style={styles.label}>Región</Text>
-                    <TouchableOpacity 
-                        style={[styles.selectBtn, errors.region && styles.inputError]} 
-                        onPress={() => setShowRegionModal(true)}
-                    >
-                        <Text style={{color: form.selectedRegion ? '#000' : '#999'}} numberOfLines={1}>
-                            {form.selectedRegion?.name || "Seleccionar..."}
-                        </Text>
-                        <Text style={{ color: '#000' }}>▼</Text>
-                    </TouchableOpacity>
-                    {errors.region && <Text style={styles.errorText}>{errors.region}</Text>}
-                </View>
-
-                {/* COMUNA */}
-                <View style={{flex: 1}}>
-                    <Text style={styles.label}>Comuna</Text>
-                    <TouchableOpacity 
-                        style={[styles.selectBtn, errors.commune && styles.inputError]} 
-                        onPress={() => form.selectedRegion ? setShowCommuneModal(true) : Alert.alert("Primero selecciona una región")}
-                        disabled={!form.selectedRegion}
-                    >
-                        {loadingCommunes ? (
-                             <ActivityIndicator size="small" color={COLORS.primary} />
-                        ) : (
-                            <>
-                                <Text style={{color: form.selectedCommune ? '#000' : '#999'}} numberOfLines={1}>
-                                    {form.selectedCommune?.name || "Seleccionar..."}
-                                </Text>
-                                <Text style={{ color: '#000' }}>▼</Text>
-                            </>
-                        )}
-                    </TouchableOpacity>
-                    {errors.commune && <Text style={styles.errorText}>{errors.commune}</Text>}
-                </View>
-            </View>
-
-
-            {/* DESCRIPCIÓN */}
-            <Text style={[styles.label, {marginTop: 15}]}>Descripción</Text>
-            <TextInput 
-                style={[styles.input, { height: 100, textAlignVertical: 'top' }, errors.description && styles.inputError]} 
-                multiline 
-                placeholder="Detalles, medidas, marca, motivo de venta..." 
-                value={form.description}
-                onChangeText={(t) => { setForm({...form, description: t}); clearError('description'); }}
-            />
-            {errors.description && <Text style={styles.errorText}>{errors.description}</Text>}
-
-            {/* BOTÓN */}
             <TouchableOpacity style={styles.btnPrimary} onPress={handleCreate} disabled={loading}>
-                {loading ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.btnText}>Publicar Producto</Text>}
+                {loading ? <ActivityIndicator color={COLORS.white} /> : <Text style={styles.btnText}>Enviar a Revisión</Text>}
             </TouchableOpacity>
 
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* MODALES DE UBICACIÓN */}
       <Modal visible={showRegionModal} transparent animationType="slide">
           <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
                   <Text style={styles.modalTitle}>Selecciona Región</Text>
-                  <FlatList data={regions} keyExtractor={i=>i.id.toString()} renderItem={({item})=>renderModalItem(item, ()=>handleSelectRegion(item))}/>
-                  <TouchableOpacity style={styles.closeBtn} onPress={()=>setShowRegionModal(false)}><Text style={styles.closeText}>Cerrar</Text></TouchableOpacity>
+                  <FlatList 
+                      data={regions} 
+                      keyExtractor={i=>i.id.toString()} 
+                      renderItem={({item})=> (
+                          <TouchableOpacity style={styles.modalItem} onPress={() => handleSelectRegion(item)}>
+                              <Text style={styles.modalItemText}>{item.name}</Text>
+                          </TouchableOpacity>
+                      )}
+                  />
+                  <TouchableOpacity style={styles.closeBtn} onPress={()=>setShowRegionModal(false)}>
+                      <Text style={styles.closeText}>Cerrar</Text>
+                  </TouchableOpacity>
               </View>
           </View>
       </Modal>
@@ -300,54 +338,54 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
           <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
                   <Text style={styles.modalTitle}>Selecciona Comuna</Text>
-                  {/* 🔥 AQUÍ ESTÁ LA CORRECCIÓN */}
                   <FlatList 
-                      data={communes} 
+                      data={filteredCommunes} 
                       keyExtractor={i=>i.id.toString()} 
-                      renderItem={({item}) => renderModalItem(item, () => {
-                          setForm({...form, selectedCommune: item}); 
-                          setShowCommuneModal(false); 
-                          clearError('commune');
-                      })}
+                      renderItem={({item}) => (
+                          <TouchableOpacity style={styles.modalItem} onPress={() => handleSelectCommune(item)}>
+                              <Text style={styles.modalItemText}>{item.name}</Text>
+                          </TouchableOpacity>
+                      )}
                   />
-                  
                   <TouchableOpacity style={styles.closeBtn} onPress={()=>setShowCommuneModal(false)}>
                       <Text style={styles.closeText}>Cerrar</Text>
                   </TouchableOpacity>
               </View>
           </View>
       </Modal>
-      </SafeAreaView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, backgroundColor: COLORS.white, ...SHADOWS.card },
+  backBtn: { padding: 8, backgroundColor: '#F0F0F0', borderRadius: 12 },
   headerTitle: { fontSize: 20, fontFamily: FONTS.bold, color: COLORS.textDark },
-  label: { fontFamily: FONTS.semiBold, color: COLORS.textDark, marginBottom: 5 },
-  input: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee' },
+  card: { backgroundColor: COLORS.white, padding: 20, borderRadius: 16, marginBottom: 15, ...SHADOWS.card },
+  label: { fontFamily: FONTS.semiBold, color: COLORS.textDark, marginBottom: 8, fontSize: 15 },
+  input: { backgroundColor: '#F8F9FA', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#E0E0E0', fontFamily: FONTS.regular, color: COLORS.textDark },
   inputError: { borderColor: COLORS.danger, borderWidth: 1 },
-  errorText: { color: COLORS.danger, fontSize: 12, marginTop: 4 },
-  
-  imagePicker: { width: '100%', height: 180, backgroundColor: '#f0f0f0', borderRadius: 12, marginBottom: 15, justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed', borderWidth: 2, borderColor: '#ccc', overflow: 'hidden' },
+  errorText: { color: COLORS.danger, fontSize: 12, marginTop: 4, fontFamily: FONTS.regular },
+  imagePicker: { width: '100%', height: 180, backgroundColor: '#F8F9FA', borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderStyle: 'dashed', borderWidth: 2, borderColor: '#E0E0E0', overflow: 'hidden' },
   imagePreview: { width: '100%', height: '100%', resizeMode: 'cover' },
-
-  conditionBtn: { flex: 1, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', backgroundColor: COLORS.white, alignItems: 'center' },
+  conditionBtn: { flex: 1, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#E0E0E0', backgroundColor: '#F8F9FA', alignItems: 'center' },
   conditionBtnActive: { backgroundColor: COLORS.secondary, borderColor: COLORS.secondary },
   conditionText: { fontFamily: FONTS.semiBold, color: COLORS.textDark },
   conditionTextActive: { color: COLORS.white },
-
-  // ESTILOS SELECTORES
-  selectBtn: { 
-    backgroundColor: COLORS.white, padding: 15, borderRadius: 12, 
-    borderWidth: 1, borderColor: '#eee', flexDirection:'row', justifyContent:'space-between', alignItems: 'center'
-  },
-
-  btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 30, marginBottom: 40, ...SHADOWS.card },
+  selectBtn: { backgroundColor: '#F8F9FA', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#E0E0E0', flexDirection:'row', justifyContent:'space-between', alignItems: 'center' },
+  priceInputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', borderRadius: 12, borderWidth: 1, borderColor: '#E0E0E0', paddingHorizontal: 15 },
+  currencySymbol: { fontSize: 24, fontFamily: FONTS.bold, color: COLORS.textDark, marginRight: 10 },
+  inputPrice: { flex: 1, paddingVertical: 15, fontSize: 24, fontFamily: FONTS.bold, color: COLORS.textDark },
+  feeSummaryBox: { marginTop: 15, backgroundColor: '#F0F8FF', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#D0E3F5' },
+  feeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
+  feeLabel: { fontFamily: FONTS.regular, color: COLORS.textLight, fontSize: 14 },
+  feeValue: { fontFamily: FONTS.semiBold, color: COLORS.textDark, fontSize: 14 },
+  feeValueRed: { fontFamily: FONTS.semiBold, color: COLORS.danger, fontSize: 14 },
+  feeTotalLabel: { fontFamily: FONTS.bold, color: COLORS.textDark, fontSize: 16 },
+  feeTotalValue: { fontFamily: FONTS.bold, color: COLORS.primary, fontSize: 18 },
+  btnPrimary: { backgroundColor: COLORS.primary, padding: 18, borderRadius: 16, alignItems: 'center', marginTop: 10, marginBottom: 40, ...SHADOWS.card },
   btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
-
-  // ESTILOS MODAL
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: 'white', borderRadius: 20, padding: 20, maxHeight: '70%' },
   modalTitle: { textAlign:'center', fontWeight:'bold', fontSize:18, marginBottom:10, color: '#000'},

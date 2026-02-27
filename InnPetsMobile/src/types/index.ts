@@ -25,6 +25,7 @@ export interface ServiceCategory {
 export interface Service {
   id: number;
   provider: any; 
+  provider_name?: string;
   title: string;
   description: string;
   price: number;
@@ -91,8 +92,9 @@ export type RootStackParamList = {
   ChatDetail: { roomId: number; partnerName: string; isSupport?: boolean }; 
   CreateTicket: undefined;
 
-  // 🔥 NUEVAS RUTAS DEL MARKETPLACE
+  // 🔥 NUEVAS RUTAS
   CreateMarketplaceItem: undefined;
   MarketplaceItemDetail: { item: MarketplaceItem };
   VerifyOTP: { email: string };
+  ResubmitID: { email: string; motivo: string }; // 🔥 NUEVO
 };

@@ -38,60 +38,59 @@ const CustomDrawer = (props: any) => {
   };
 
   const handleSupport = () => {
-      // 👇 CAMBIO AQUÍ: Navega a la nueva ruta de Tickets
       props.navigation.navigate('SupportTickets'); 
   };
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: COLORS.white }}>
       <DrawerContentScrollView 
         {...props} 
-        contentContainerStyle={{ backgroundColor: COLORS.primary }}
+        contentContainerStyle={{ backgroundColor: COLORS.primary, paddingTop: 0 }} // paddingTop 0 para que el color llene la barra de estado
+        bounces={false}
       >
+        {/* HEADER DEL MENÚ */}
         <ImageBackground 
             source={{uri: 'https://img.freepik.com/free-vector/paw-print-background_1017-30882.jpg'}} 
-            style={{padding: 20}}
-            imageStyle={{opacity: 0.1}}
+            style={[styles.headerBg, { paddingTop: insets.top + 20 }]}
+            imageStyle={{opacity: 0.15}}
         >
             <View style={styles.profileContainer}>
                 <Image source={{ uri: userPhoto }} style={styles.profileImage} />
-                <Text style={styles.userName}>
-                    {user ? `${user.first_name} ${user.last_name}` : 'Bienvenido'}
-                </Text>
-                <View style={styles.roleBadge}>
-                    <Text style={styles.roleText}>
-                        {user?.user_type === 'PP' ? '🐶 Dueño de Mascota' : '🛠️ Proveedor'}
+                <View style={styles.profileTextContainer}>
+                    <Text style={styles.userName} numberOfLines={1}>
+                        {user ? `${user.first_name} ${user.last_name}` : 'Bienvenido'}
                     </Text>
+                    <View style={styles.roleBadge}>
+                        <Ionicons name={user?.user_type === 'PP' ? 'paw' : 'briefcase'} size={12} color="#fff" style={{marginRight: 4}} />
+                        <Text style={styles.roleText}>
+                            {user?.user_type === 'PP' ? 'Dueño de Mascota' : 'Proveedor'}
+                        </Text>
+                    </View>
                 </View>
             </View>
         </ImageBackground>
 
-        <View style={{ flex: 1, backgroundColor: '#fff', paddingTop: 10 }}>
+        {/* LISTA DE NAVEGACIÓN */}
+        <View style={styles.drawerListContainer}>
           <DrawerItemList {...props} />
 
-          <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0' }}>
-              <TouchableOpacity 
-                  onPress={handleSupport} 
-                  style={{ flexDirection: 'row', alignItems: 'center', padding: 18 }}
-              >
-                  <Ionicons name="help-buoy-outline" size={24} color={COLORS.textLight || '#666'} style={{ marginRight: 30 }} />
-                  <Text style={{ fontSize: 16, fontFamily: FONTS.regular, color: COLORS.textDark || '#333' }}>
-                      Soporte / Ayuda
-                  </Text>
-              </TouchableOpacity>
-          </View>
-
+          <View style={styles.divider} />
+          
+          {/* BOTÓN DE SOPORTE ALINEADO PERFECTAMENTE */}
+          <TouchableOpacity onPress={handleSupport} style={styles.customItem}>
+              <View style={styles.customItemIcon}>
+                  <Ionicons name="help-buoy-outline" size={22} color="#4A4A4A" />
+              </View>
+              <Text style={styles.customItemText}>Soporte / Ayuda</Text>
+          </TouchableOpacity>
         </View>
       </DrawerContentScrollView>
 
-      <View style={{ 
-          padding: 20, borderTopWidth: 1, borderTopColor: '#ccc', paddingBottom: 20 + insets.bottom 
-      }}>
-        <TouchableOpacity onPress={handleLogout} style={{flexDirection: 'row', alignItems: 'center'}}>
-          <Ionicons name="log-out-outline" size={24} color={COLORS.textDark} style={{ marginRight: 10 }} />
-          <Text style={{fontSize: 16, fontFamily: FONTS.bold, color: COLORS.textDark}}>
-            Cerrar Sesión
-          </Text>
+      {/* FOOTER - CERRAR SESIÓN */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+          <Ionicons name="log-out-outline" size={22} color={COLORS.danger || '#D32F2F'} />
+          <Text style={styles.logoutText}>Cerrar Sesión</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -99,11 +98,105 @@ const CustomDrawer = (props: any) => {
 };
 
 const styles = StyleSheet.create({
-  profileContainer: { alignItems: 'center', marginBottom: 10 },
-  profileImage: { height: 80, width: 80, borderRadius: 40, marginBottom: 10, borderWidth: 3, borderColor: '#fff', backgroundColor: '#ccc' },
-  userName: { color: '#fff', fontSize: 18, fontFamily: FONTS.bold, marginBottom: 5, textAlign: 'center' },
-  roleBadge: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  roleText: { color: '#fff', fontSize: 12, fontWeight: 'bold' }
+  // Estilos del Header
+  headerBg: {
+      paddingHorizontal: 20,
+      paddingBottom: 30,
+      backgroundColor: COLORS.primary,
+  },
+  profileContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+  },
+  profileImage: { 
+      height: 65, 
+      width: 65, 
+      borderRadius: 35, 
+      borderWidth: 2, 
+      borderColor: '#fff', 
+      backgroundColor: '#EAEAEA',
+      marginRight: 15
+  },
+  profileTextContainer: {
+      flex: 1,
+  },
+  userName: { 
+      color: '#fff', 
+      fontSize: 18, 
+      fontFamily: FONTS.bold, 
+      marginBottom: 4 
+  },
+  roleBadge: { 
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(255,255,255,0.25)', 
+      paddingHorizontal: 10, 
+      paddingVertical: 5, 
+      borderRadius: 12,
+      alignSelf: 'flex-start'
+  },
+  roleText: { 
+      color: '#fff', 
+      fontSize: 12, 
+      fontFamily: FONTS.semiBold 
+  },
+  
+  // Estilos de la Lista
+  drawerListContainer: { 
+      flex: 1, 
+      backgroundColor: COLORS.white, 
+      paddingTop: 15,
+      paddingHorizontal: 10,
+  },
+  divider: {
+      height: 1,
+      backgroundColor: '#F0F0F0',
+      marginVertical: 10,
+      marginHorizontal: 10
+  },
+  
+  // Estilo del botón de Soporte (Mimetizado con los del sistema)
+  customItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 8,
+      borderRadius: 12,
+  },
+  customItemIcon: {
+      width: 35, 
+      alignItems: 'flex-start',
+      marginLeft: 6
+  },
+  customItemText: {
+      fontSize: 15,
+      fontFamily: FONTS.semiBold,
+      color: '#4A4A4A',
+      marginLeft: 3,
+  },
+  
+  // Estilos del Footer
+  footer: { 
+      paddingTop: 15,
+      paddingHorizontal: 20, 
+      borderTopWidth: 1, 
+      borderTopColor: '#F0F0F0', 
+      backgroundColor: COLORS.white
+  },
+  logoutBtn: {
+      flexDirection: 'row', 
+      alignItems: 'center',
+      backgroundColor: '#FFF0F0', // Rojo muy clarito
+      paddingVertical: 14,
+      paddingHorizontal: 15,
+      borderRadius: 12,
+  },
+  logoutText: {
+      fontSize: 15, 
+      fontFamily: FONTS.bold, 
+      color: COLORS.danger || '#D32F2F',
+      marginLeft: 10
+  }
 });
 
 export default CustomDrawer;

@@ -27,7 +27,6 @@ const CreatePetScreen = ({ navigation }: any) => {
   const [loading, setLoading] = useState(false);
   const [linkCode, setLinkCode] = useState('');
 
-  // 1. NUEVO: ESTADO DE ERRORES
   const [errors, setErrors] = useState<any>({});
 
   // Datos de catálogos
@@ -35,6 +34,9 @@ const CreatePetScreen = ({ navigation }: any) => {
   const [speciesList, setSpeciesList] = useState<any[]>([]);
   const [breedsList, setBreedsList] = useState<any[]>([]);
   const [filteredBreeds, setFilteredBreeds] = useState<any[]>([]);
+  
+  // 🔥 NUEVO: Preguntas dinámicas del backend
+  const [dynamicQuestions, setDynamicQuestions] = useState<any[]>([]);
   
   // Modales
   const [showSpeciesModal, setShowSpeciesModal] = useState(false);
@@ -45,7 +47,7 @@ const CreatePetScreen = ({ navigation }: any) => {
   const [dateObject, setDateObject] = useState(new Date()); 
   const [localImageUri, setLocalImageUri] = useState<string | null>(null);
 
-  // Formulario
+  // Formulario (Sin los booleanos viejos)
   const [form, setForm] = useState({
     name: '',
     selectedSpecies: null as any,
@@ -54,12 +56,9 @@ const CreatePetScreen = ({ navigation }: any) => {
     color: '',
     medical_history: '',
     birth_date: '', 
-    isFriendlyChildren: false,
-    isFriendlyPets: false,
-    isEnergetic: false,
-    isSterilized: false,
-    vaccinesUpToDate: false,
-    behaviorNotes: ''
+    behaviorNotes: '',
+    // 🔥 Aquí guardaremos las respuestas dinámicas
+    behaviorAnswers: {} as Record<string, boolean>
   });
 
   useEffect(() => {
@@ -68,12 +67,25 @@ const CreatePetScreen = ({ navigation }: any) => {
 
   const fetchCatalogs = async () => {
     try {
-      const [speciesRes, breedsRes] = await Promise.all([
+      // 🔥 Agregamos la llamada a behavior-questions
+      const [speciesRes, breedsRes, questionsRes] = await Promise.all([
         api.get('/species/'),
-        api.get('/breeds/')
+        api.get('/breeds/'),
+        api.get('/behavior-questions/') 
       ]);
       setSpeciesList(speciesRes.data);
       setBreedsList(breedsRes.data);
+      
+      // Guardamos las preguntas y preparamos el estado inicial (todas en false)
+      const questions = questionsRes.data;
+      setDynamicQuestions(questions);
+      
+      let initialAnswers: Record<string, boolean> = {};
+      questions.forEach((q: any) => {
+          initialAnswers[q.question_text] = false;
+      });
+      setForm(prev => ({ ...prev, behaviorAnswers: initialAnswers }));
+
     } catch (error) {
       console.log("Error catálogos:", error);
     } finally {
@@ -81,7 +93,6 @@ const CreatePetScreen = ({ navigation }: any) => {
     }
   };
 
-  // Helper para limpiar errores
   const clearError = (field: string) => {
       if (errors[field]) setErrors({ ...errors, [field]: null });
   };
@@ -91,7 +102,7 @@ const CreatePetScreen = ({ navigation }: any) => {
     const filtered = breedsList.filter(b => b.species === species.id || b.species.id === species.id);
     setFilteredBreeds(filtered);
     setShowSpeciesModal(false);
-    clearError('species'); // Limpiar error
+    clearError('species');
   };
 
   const onChangeDate = (event: any, selectedDate?: Date) => {
@@ -106,87 +117,52 @@ const CreatePetScreen = ({ navigation }: any) => {
   };
 
   const handleSelectImage = () => {
-    Alert.alert(
-      "Foto de la Mascota",
-      "Elige una opción",
-      [
+    Alert.alert("Foto de la Mascota", "Elige una opción", [
         { text: "📷 Tomar Foto", onPress: openCamera },
         { text: "🖼️ Abrir Galería", onPress: openGallery },
         { text: "Cancelar", style: "cancel" },
-      ]
-    );
+    ]);
   };
 
   const openCamera = async () => {
     const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-    if (permissionResult.granted === false) {
-      Alert.alert("Permiso denegado", "Necesitas dar permiso para usar la cámara.");
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-    if (!result.canceled) {
-        setLocalImageUri(result.assets[0].uri);
-        clearError('image'); // Limpiar error
-    }
+    if (permissionResult.granted === false) return Alert.alert("Permiso denegado", "Necesitas dar permiso para usar la cámara.");
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.7 });
+    if (!result.canceled) { setLocalImageUri(result.assets[0].uri); clearError('image'); }
   };
 
   const openGallery = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permissionResult.granted === false) {
-        Alert.alert("Permiso necesario", "Necesitamos acceso a tu galería.");
-        return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-    if (!result.canceled) {
-        setLocalImageUri(result.assets[0].uri);
-        clearError('image'); // Limpiar error
-    }
+    if (permissionResult.granted === false) return Alert.alert("Permiso necesario", "Necesitamos acceso a tu galería.");
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.7 });
+    if (!result.canceled) { setLocalImageUri(result.assets[0].uri); clearError('image'); }
   };
 
-  // 2. FUNCIÓN DE VALIDACIÓN
   const validate = () => {
     let valid = true;
     let temp: any = {};
-
     if (!localImageUri) { temp.image = "Sube una foto de tu mascota"; valid = false; }
     if (!form.name) { temp.name = "El nombre es obligatorio"; valid = false; }
     if (!form.selectedSpecies) { temp.species = "Selecciona especie"; valid = false; }
     if (!form.selectedBreed) { temp.breed = "Selecciona raza"; valid = false; }
-    
     if (!form.weight) { temp.weight = "Ingresa el peso"; valid = false; }
     else if (isNaN(parseFloat(form.weight))) { temp.weight = "Debe ser número"; valid = false; }
-
     if (!form.color) { temp.color = "Indica el color"; valid = false; }
-
     setErrors(temp);
     return valid;
   };
 
-  // 💾 LOGICA CREAR
   const handleCreate = async () => {
-    // 3. LLAMADA A LA VALIDACIÓN
     if (!validate()) return;
-
     setLoading(true);
     try {
-      // 1. Subir Imagen a Cloudinary
       let uploadedUrl = "";
       if (localImageUri) {
          const url = await uploadImageToCloudinary(localImageUri);
          if (url) uploadedUrl = url;
       }
 
-      // 2. Preparar Payload
+      // 🔥 AQUÍ ENVIAMOS EL JSON DINÁMICO
       const payload = {
         name: form.name,
         breed: form.selectedBreed.id,
@@ -196,22 +172,13 @@ const CreatePetScreen = ({ navigation }: any) => {
             color: form.color,
         },
         medical_history: form.medical_history,
-        is_friendly_children: form.isFriendlyChildren,
-        is_friendly_pets: form.isFriendlyPets,
-        is_energetic: form.isEnergetic,
-        is_sterilized: form.isSterilized,
-        vaccines_up_to_date: form.vaccinesUpToDate,
         behavior_notes: form.behaviorNotes,
-        
+        behavior_answers: form.behaviorAnswers, // Enviamos las respuestas dinámicas
         photos_url: uploadedUrl ? [uploadedUrl] : []
       };
 
-      // 3. Enviar al Backend
       await api.post('/pets/', payload);
-      
-      Alert.alert("¡Éxito! 🐾", "Mascota registrada correctamente.", [
-        { text: "OK", onPress: () => navigation.goBack() }
-      ]);
+      Alert.alert("¡Éxito! 🐾", "Mascota registrada correctamente.", [{ text: "OK", onPress: () => navigation.goBack() }]);
 
     } catch (error) {
       console.error(error);
@@ -221,19 +188,13 @@ const CreatePetScreen = ({ navigation }: any) => {
     }
   };
 
-  // LOGICA VINCULAR
   const handleLink = async () => {
-    if (!linkCode || linkCode.length < 4) { 
-        setErrors({ code: "El código debe tener al menos 4 caracteres" }); 
-        return; 
-    }
-    
+    if (!linkCode || linkCode.length < 4) { setErrors({ code: "El código debe tener al menos 4 caracteres" }); return; }
     setLoading(true);
     try {
         const res = await api.post('/pets/link-pet/', { code: linkCode });
         Alert.alert("¡Vinculado!", res.data.message, [{ text: "Ver mis mascotas", onPress: () => navigation.navigate('Main', {screen: 'Perfil'}) }]);
     } catch (error: any) {
-        // Mostramos el error del backend como error visual si es posible, o alerta
         const msg = error.response?.data?.error || "Código no encontrado.";
         setErrors({ code: msg });
     } finally {
@@ -261,8 +222,6 @@ const CreatePetScreen = ({ navigation }: any) => {
 
   return (
     <SafeAreaView style={styles.container}>
-        
-        {/* HEADER */}
         <View style={styles.header}>
             <TouchableOpacity onPress={() => navigation.goBack()}>
                 <Text style={{fontSize: 24, color: '#000'}}>⬅️</Text>
@@ -271,7 +230,6 @@ const CreatePetScreen = ({ navigation }: any) => {
             <View style={{width: 24}} /> 
         </View>
 
-        {/* TABS */}
         <View style={styles.tabContainer}>
             <TouchableOpacity style={[styles.tab, mode === 'CREATE' && styles.activeTab]} onPress={() => {setMode('CREATE'); setErrors({});}}>
                 <Text style={[styles.tabText, mode === 'CREATE' && styles.activeTabText]}>Registrar Nueva</Text>
@@ -281,29 +239,15 @@ const CreatePetScreen = ({ navigation }: any) => {
             </TouchableOpacity>
         </View>
 
-        <KeyboardAvoidingView 
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={{ flex: 1 }}
-        >
-            <ScrollView 
-                contentContainerStyle={{ padding: 20, flexGrow: 1 }}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-            >
-                
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+            <ScrollView contentContainerStyle={{ padding: 20, flexGrow: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                 {mode === 'CREATE' ? (
                       <View style={styles.form}>
                         <Text style={styles.sectionHelp}>Registra una mascota que no tiene perfil aún.</Text>
 
-                        {/* 📸 SECCIÓN DE FOTO */}
                         <View style={{ alignItems: 'center', marginBottom: 10 }}>
-                            <TouchableOpacity 
-                                onPress={handleSelectImage} 
-                                style={[styles.imagePickerBtn, errors.image && styles.imagePickerError]}
-                            >
-                                {localImageUri ? (
-                                    <Image source={{ uri: localImageUri }} style={styles.imagePreview} />
-                                ) : (
+                            <TouchableOpacity onPress={handleSelectImage} style={[styles.imagePickerBtn, errors.image && styles.imagePickerError]}>
+                                {localImageUri ? <Image source={{ uri: localImageUri }} style={styles.imagePreview} /> : (
                                     <View style={{ alignItems: 'center' }}>
                                         <Text style={{ fontSize: 40 }}>📸</Text>
                                         <Text style={styles.imagePickerText}>Subir Foto</Text>
@@ -317,26 +261,14 @@ const CreatePetScreen = ({ navigation }: any) => {
                         
                         <View>
                             <Text style={styles.label}>Nombre</Text>
-                            <TextInput 
-                                style={[styles.input, errors.name && styles.inputError]} 
-                                placeholder="Ej: Max" 
-                                placeholderTextColor="#999" 
-                                autoCapitalize="words"
-                                value={form.name}
-                                onChangeText={t=>{ setForm({...form, name: t}); clearError('name'); }}
-                            />
+                            <TextInput style={[styles.input, errors.name && styles.inputError]} placeholder="Ej: Max" placeholderTextColor="#999" autoCapitalize="words" value={form.name} onChangeText={t=>{ setForm({...form, name: t}); clearError('name'); }}/>
                             {errors.name && <Text style={styles.errorText}>{errors.name}</Text>}
                         </View>
                         
                         <View>
                             <Text style={styles.label}>Especie</Text>
-                            <TouchableOpacity 
-                                style={[styles.selectBtn, errors.species && styles.inputError]} 
-                                onPress={() => setShowSpeciesModal(true)}
-                            >
-                                <Text style={{color: form.selectedSpecies ? '#000' : '#999'}}>
-                                    {form.selectedSpecies?.name || "Seleccionar..."}
-                                </Text>
+                            <TouchableOpacity style={[styles.selectBtn, errors.species && styles.inputError]} onPress={() => setShowSpeciesModal(true)}>
+                                <Text style={{color: form.selectedSpecies ? '#000' : '#999'}}>{form.selectedSpecies?.name || "Seleccionar..."}</Text>
                                 <Text style={{ color: '#000' }}>▼</Text>
                             </TouchableOpacity>
                             {errors.species && <Text style={styles.errorText}>{errors.species}</Text>}
@@ -344,13 +276,8 @@ const CreatePetScreen = ({ navigation }: any) => {
 
                         <View>
                             <Text style={styles.label}>Raza</Text>
-                            <TouchableOpacity 
-                                style={[styles.selectBtn, errors.breed && styles.inputError]} 
-                                onPress={() => form.selectedSpecies ? setShowBreedModal(true) : null}
-                            >
-                                <Text style={{color: form.selectedBreed ? '#000' : '#999'}}>
-                                    {form.selectedBreed?.name || (form.selectedSpecies ? "Seleccionar..." : "Primero elige especie")}
-                                </Text>
+                            <TouchableOpacity style={[styles.selectBtn, errors.breed && styles.inputError]} onPress={() => form.selectedSpecies ? setShowBreedModal(true) : null}>
+                                <Text style={{color: form.selectedBreed ? '#000' : '#999'}}>{form.selectedBreed?.name || (form.selectedSpecies ? "Seleccionar..." : "Primero elige especie")}</Text>
                                 <Text style={{ color: '#000' }}>▼</Text>
                             </TouchableOpacity>
                             {errors.breed && <Text style={styles.errorText}>{errors.breed}</Text>}
@@ -359,92 +286,67 @@ const CreatePetScreen = ({ navigation }: any) => {
                         <View style={{flexDirection: 'row', gap: 10}}>
                             <View style={{flex: 1}}>
                                 <Text style={styles.label}>Peso (kg)</Text>
-                                <TextInput 
-                                    style={[styles.input, errors.weight && styles.inputError]} 
-                                    placeholder="Ej: 15.5" 
-                                    placeholderTextColor="#999" 
-                                    keyboardType="numeric"
-                                    value={form.weight}
-                                    onChangeText={t=>{ setForm({...form, weight: t}); clearError('weight'); }}
-                                />
+                                <TextInput style={[styles.input, errors.weight && styles.inputError]} placeholder="Ej: 15.5" placeholderTextColor="#999" keyboardType="numeric" value={form.weight} onChangeText={t=>{ setForm({...form, weight: t}); clearError('weight'); }}/>
                                 {errors.weight && <Text style={styles.errorText}>{errors.weight}</Text>}
                             </View>
                             <View style={{flex: 1}}>
                                 <Text style={styles.label}>Color</Text>
-                                <TextInput 
-                                    style={[styles.input, errors.color && styles.inputError]} 
-                                    placeholder="Ej: Café" 
-                                    placeholderTextColor="#999" 
-                                    autoCapitalize="words"
-                                    value={form.color}
-                                    onChangeText={t=>{ setForm({...form, color: t}); clearError('color'); }}
-                                />
+                                <TextInput style={[styles.input, errors.color && styles.inputError]} placeholder="Ej: Café" placeholderTextColor="#999" autoCapitalize="words" value={form.color} onChangeText={t=>{ setForm({...form, color: t}); clearError('color'); }}/>
                                 {errors.color && <Text style={styles.errorText}>{errors.color}</Text>}
                             </View>
                         </View>
 
                         <Text style={styles.label}>Fecha Nacimiento (Opcional)</Text>
                         <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.selectBtn}>
-                             <Text style={{ color: form.birth_date ? '#000' : '#999' }}>
-                                {form.birth_date ? form.birth_date : "Seleccionar fecha 📅"}
-                             </Text>
+                             <Text style={{ color: form.birth_date ? '#000' : '#999' }}>{form.birth_date ? form.birth_date : "Seleccionar fecha 📅"}</Text>
                         </TouchableOpacity>
 
                         {showDatePicker && (
-                            <DateTimePicker
-                                testID="dateTimePicker"
-                                value={dateObject}
-                                mode="date"
-                                display="default"
-                                onChange={onChangeDate}
-                                maximumDate={new Date()} 
-                            />
+                            <DateTimePicker testID="dateTimePicker" value={dateObject} mode="date" display="default" onChange={onChangeDate} maximumDate={new Date()} />
                         )}
 
+                        {/* 🔥 PREGUNTAS DINÁMICAS */}
                         <View style={styles.separator} />
                         <Text style={styles.sectionTitle}>Perfil de Comportamiento 📋</Text>
 
-                        <SwitchRow label="¿Se lleva bien con niños? 👶" value={form.isFriendlyChildren} onValueChange={(v: boolean) => setForm({...form, isFriendlyChildren: v})} />
-                        <SwitchRow label="¿Se lleva bien con otras mascotas? 🐕" value={form.isFriendlyPets} onValueChange={(v: boolean) => setForm({...form, isFriendlyPets: v})} />
-                        <SwitchRow label="¿Tiene mucha energía? ⚡" value={form.isEnergetic} onValueChange={(v: boolean) => setForm({...form, isEnergetic: v})} />
-                        <SwitchRow label="¿Está esterilizado/castrado? 🏥" value={form.isSterilized} onValueChange={(v: boolean) => setForm({...form, isSterilized: v})} />
-                        <SwitchRow label="¿Vacunas al día? 💉" value={form.vaccinesUpToDate} onValueChange={(v: boolean) => setForm({...form, vaccinesUpToDate: v})} />
+                        {loadingData ? (
+                            <ActivityIndicator size="small" color={COLORS.primary} style={{marginVertical: 20}} />
+                        ) : dynamicQuestions.length > 0 ? (
+                            dynamicQuestions.map((q: any) => (
+                                <SwitchRow 
+                                    key={q.id}
+                                    label={q.question_text} 
+                                    value={form.behaviorAnswers[q.question_text] || false} 
+                                    onValueChange={(v: boolean) => {
+                                        setForm({
+                                            ...form, 
+                                            behaviorAnswers: { ...form.behaviorAnswers, [q.question_text]: v }
+                                        })
+                                    }} 
+                                />
+                            ))
+                        ) : (
+                            <Text style={{fontStyle:'italic', color:'#999', marginBottom:15}}>No hay preguntas de comportamiento configuradas.</Text>
+                        )}
 
-                        <Text style={styles.label}>Notas adicionales / Historial Médico</Text>
-                        <TextInput 
-                            style={[styles.input, {height: 80, textAlignVertical: 'top'}]} 
-                            multiline 
-                            placeholder="Alergias, miedos, cuidados..." 
-                            placeholderTextColor="#999" 
-                            autoCapitalize="sentences"
-                            value={form.behaviorNotes}
-                            onChangeText={t=>setForm({...form, medical_history: t, behaviorNotes: t})}
-                        />
+                        <Text style={[styles.label, { marginTop: 10 }]}>Historial Médico 🏥</Text>
+                        <TextInput style={[styles.input, {height: 80, textAlignVertical: 'top', marginBottom: 15}]} multiline placeholder="Alergias, cirugías previas, enfermedades..." placeholderTextColor="#999" autoCapitalize="sentences" value={form.medical_history} onChangeText={t=>setForm({...form, medical_history: t})}/>
+
+                        <Text style={styles.label}>Notas de Conducta 🧠</Text>
+                        <TextInput style={[styles.input, {height: 80, textAlignVertical: 'top'}]} multiline placeholder="Miedos, mañas, cómo se comporta al pasear..." placeholderTextColor="#999" autoCapitalize="sentences" value={form.behaviorNotes} onChangeText={t=>setForm({...form, behaviorNotes: t})}/>
 
                         <TouchableOpacity style={styles.btnPrimary} onPress={handleCreate} disabled={loading}>
                             {loading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>Guardar y Generar Código</Text>}
                         </TouchableOpacity>
                       </View>
                 ) : (
-                      // MODO VINCULAR
                       <View style={styles.linkContainer}>
                         <Text style={{fontSize: 50, marginBottom: 20}}>🔗</Text>
                         <Text style={styles.title}>¿Mascota compartida?</Text>
                         <Text style={styles.subtitle}>Ingresa el código único de la mascota para gestionarla.</Text>
                         
                         <View style={{width: '100%'}}>
-                            <TextInput 
-                                style={[
-                                    styles.input, 
-                                    styles.codeInput,
-                                    errors.code && styles.inputError // Error en borde
-                                ]} 
-                                placeholder="EJ: X9J2K" 
-                                placeholderTextColor="#ccc" 
-                                autoCapitalize="characters" 
-                                value={linkCode} 
-                                onChangeText={(t) => { setLinkCode(t); clearError('code'); }}
-                            />
+                            <TextInput style={[styles.input, styles.codeInput, errors.code && styles.inputError]} placeholder="EJ: X9J2K" placeholderTextColor="#ccc" autoCapitalize="characters" value={linkCode} onChangeText={(t) => { setLinkCode(t); clearError('code'); }}/>
                             {errors.code && <Text style={[styles.errorText, {textAlign: 'center'}]}>{errors.code}</Text>}
                         </View>
 
@@ -456,7 +358,6 @@ const CreatePetScreen = ({ navigation }: any) => {
             </ScrollView>
         </KeyboardAvoidingView>
         
-        {/* Modales */}
         <Modal visible={showSpeciesModal} transparent animationType="slide">
             <View style={styles.modalOverlay}>
                 <View style={styles.modalContent}>
@@ -476,7 +377,6 @@ const CreatePetScreen = ({ navigation }: any) => {
                 </View>
             </View>
         </Modal>
-
     </SafeAreaView>
   );
 };
@@ -497,84 +397,17 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontFamily: FONTS.bold, marginTop: 10, marginBottom: 5, color: COLORS.textDark },
   separator: { height: 1, backgroundColor: '#eee', marginVertical: 10 },
   label: { fontFamily: FONTS.bold, color: COLORS.textDark, marginBottom: 5 },
-  
-  input: { 
-    backgroundColor: COLORS.white, 
-    padding: 15, 
-    borderRadius: 12, 
-    borderWidth: 1, 
-    borderColor: '#eee', 
-    width: '100%',
-    color: '#000000' 
-  },
-  
-  // 🔴 ESTILOS DE ERROR
-  inputError: {
-    borderColor: COLORS.danger,
-    borderWidth: 1
-  },
-  errorText: {
-    color: COLORS.danger,
-    fontSize: 12,
-    marginTop: 4,
-    fontFamily: FONTS.regular
-  },
-  imagePickerError: {
-    borderColor: COLORS.danger,
-    borderWidth: 2,
-    borderStyle: 'dashed'
-  },
-
-  selectBtn: { 
-    backgroundColor: COLORS.white, 
-    padding: 15, 
-    borderRadius: 12, 
-    borderWidth: 1, 
-    borderColor: '#eee', 
-    flexDirection:'row', 
-    justifyContent:'space-between' 
-  },
-  codeInput: { 
-    textAlign: 'center', 
-    fontSize: 24, 
-    letterSpacing: 5, 
-    fontFamily: FONTS.bold, 
-    textTransform: 'uppercase', 
-    borderColor: COLORS.primary, 
-    borderWidth: 2,
-    color: '#000000'
-  },
-  
-  imagePickerBtn: {
-    width: 140,
-    height: 140,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 70, 
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-    overflow: 'hidden',
-    marginBottom: 5,
-    borderStyle: 'dashed' 
-  },
-  imagePreview: {
-    width: '100%',
-    height: '100%',
-  },
-  imagePickerText: {
-    color: COLORS.primary,
-    fontFamily: FONTS.bold,
-    marginTop: 5,
-    fontSize: 12
-  },
-
-  switchRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15,
-    borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingBottom: 10
-  },
+  input: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', width: '100%', color: '#000000' },
+  inputError: { borderColor: COLORS.danger, borderWidth: 1 },
+  errorText: { color: COLORS.danger, fontSize: 12, marginTop: 4, fontFamily: FONTS.regular },
+  imagePickerError: { borderColor: COLORS.danger, borderWidth: 2, borderStyle: 'dashed' },
+  selectBtn: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', flexDirection:'row', justifyContent:'space-between' },
+  codeInput: { textAlign: 'center', fontSize: 24, letterSpacing: 5, fontFamily: FONTS.bold, textTransform: 'uppercase', borderColor: COLORS.primary, borderWidth: 2, color: '#000000' },
+  imagePickerBtn: { width: 140, height: 140, backgroundColor: '#f9f9f9', borderRadius: 70, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: COLORS.primary, overflow: 'hidden', marginBottom: 5, borderStyle: 'dashed' },
+  imagePreview: { width: '100%', height: '100%' },
+  imagePickerText: { color: COLORS.primary, fontFamily: FONTS.bold, marginTop: 5, fontSize: 12 },
+  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingBottom: 10 },
   switchLabel: { fontSize: 16, color: COLORS.textDark, flex: 1 },
-
   btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 20, width: '100%' },
   btnSecondary: { backgroundColor: COLORS.secondary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 20, width: '100%' },
   btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },

@@ -11,6 +11,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadFileToCloudinary } from '../services/fileService';   
 import { uploadImageToCloudinary } from '../services/imageService'; 
+import { Ionicons } from '@expo/vector-icons';
 
 const BecomeProviderScreen = ({ navigation }: any) => {
   const { setUser } = useAuth();
@@ -23,13 +24,8 @@ const BecomeProviderScreen = ({ navigation }: any) => {
   const [selectedRegion, setSelectedRegion] = useState<any>(null);
   const [selectedComuna, setSelectedComuna] = useState<string>('');
 
-  // ARCHIVOS
-  const [selectedDoc, setSelectedDoc] = useState<any>(null);
-  const [docType, setDocType] = useState<'image' | 'pdf' | null>(null);
-  
-  // 👇 NUEVO: Estado para que el usuario edite el nombre
-  const [customFileName, setCustomFileName] = useState('');
-
+  // 🔥 NUEVA LÓGICA: Lista de documentos
+  const [documentsList, setDocumentsList] = useState<any[]>([]);
   const [showRegionModal, setShowRegionModal] = useState(false);
   const [showComunaModal, setShowComunaModal] = useState(false);
 
@@ -57,8 +53,8 @@ const BecomeProviderScreen = ({ navigation }: any) => {
 
   const handleSelectFile = () => {
       Alert.alert(
-          "Subir Certificado",
-          "Elige el formato",
+          "Añadir Certificado",
+          "Elige el formato del documento",
           [
               { text: "📷 Cámara", onPress: openCamera },
               { text: "🖼️ Galería", onPress: openGallery },
@@ -68,16 +64,22 @@ const BecomeProviderScreen = ({ navigation }: any) => {
       );
   };
 
+  const addFileToList = (asset: any, type: 'image' | 'pdf', defaultName: string) => {
+    const newDoc = {
+        id: Date.now().toString(),
+        asset: asset,
+        type: type,
+        customName: defaultName
+    };
+    setDocumentsList([...documentsList, newDoc]);
+  };
+
   const openCamera = async () => {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) return Alert.alert("Permiso denegado");
       const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
       if (!result.canceled) {
-          const asset = result.assets[0];
-          const name = `foto_cert_${Date.now()}.jpg`;
-          setSelectedDoc(asset);
-          setDocType('image');
-          setCustomFileName(name); // Ponemos nombre por defecto
+          addFileToList(result.assets[0], 'image', `Certificado_${Date.now()}.jpg`);
       }
   };
 
@@ -86,11 +88,7 @@ const BecomeProviderScreen = ({ navigation }: any) => {
       if (!permission.granted) return Alert.alert("Permiso denegado");
       const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7 });
       if (!result.canceled) {
-          const asset = result.assets[0];
-          const name = asset.fileName || `imagen_cert_${Date.now()}.jpg`;
-          setSelectedDoc(asset);
-          setDocType('image');
-          setCustomFileName(name); // Ponemos nombre original
+          addFileToList(result.assets[0], 'image', result.assets[0].fileName || `Certificado_${Date.now()}.jpg`);
       }
   };
 
@@ -98,48 +96,34 @@ const BecomeProviderScreen = ({ navigation }: any) => {
     try {
         const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
         if (!result.canceled && result.assets) {
-            const file = result.assets[0];
-            setSelectedDoc(file);
-            setDocType('pdf');
-            setCustomFileName(file.name); // Ponemos nombre original del PDF
+            addFileToList(result.assets[0], 'pdf', result.assets[0].name);
         }
     } catch (err) { console.log(err); }
   };
 
+  const removeDocument = (id: string) => {
+    setDocumentsList(documentsList.filter(doc => doc.id !== id));
+  };
+
+  const updateDocName = (id: string, newName: string) => {
+    setDocumentsList(documentsList.map(doc => 
+        doc.id === id ? { ...doc, customName: newName } : doc
+    ));
+  };
+
   const handleSubmit = async () => {
     if (!bio || !phone || !selectedRegion || !selectedComuna) {
-      Alert.alert("Faltan datos", "Completa el perfil.");
+      Alert.alert("Faltan datos", "Por favor completa tu perfil de contacto.");
       return;
     }
-    if (!selectedDoc) {
-        Alert.alert("Falta certificación", "Sube tu certificado.");
-        return;
-    }
-    // Validamos que el usuario haya puesto un nombre
-    if (!customFileName.trim()) {
-        Alert.alert("Nombre de archivo", "Por favor asigna un nombre al archivo.");
+    if (documentsList.length === 0) {
+        Alert.alert("Faltan documentos", "Debes subir al menos un certificado para postular.");
         return;
     }
 
     setLoading(true);
     try {
-      let docUrl = "";
-      
-      // Enviamos el nombre personalizado (customFileName)
-      if (docType === 'image') {
-          // Nota: Para imágenes, Cloudinary suele usar su propio ID, pero podemos intentar enviar el public_id o metadata
-          // Si tu función uploadImageToCloudinary soporta nombre, úsalo. Si no, subirá con nombre aleatorio pero no afecta.
-          docUrl = await uploadImageToCloudinary(selectedDoc.uri);
-      } else {
-          docUrl = await uploadFileToCloudinary(
-              selectedDoc.uri, 
-              customFileName, // 👈 AQUÍ USAMOS EL NOMBRE DEL INPUT
-              selectedDoc.mimeType || 'application/pdf'
-          );
-      }
-
-      if (!docUrl) throw new Error("Fallo al subir");
-
+      // 1. Actualizar perfil básico
       const userUpdateRes = await api.patch('/users/me/', {
         phone_number: phone,
         region: selectedRegion.region,
@@ -148,24 +132,37 @@ const BecomeProviderScreen = ({ navigation }: any) => {
         provider_profile: { professional_bio: bio }
       });
 
-      // Guardamos la certificación (aquí podrías mandar el nombre al backend si tienes un campo 'title' en el modelo Certification)
-      await api.post('/certifications/', {
-          document_url: docUrl,
-          // title: customFileName  <-- Si tu backend soporta título, descomenta esto
-      });
+      // 2. Subir todos los archivos
+      for (const doc of documentsList) {
+        let docUrl = "";
+        if (doc.type === 'image') {
+            docUrl = await uploadImageToCloudinary(doc.asset.uri);
+        } else {
+            docUrl = await uploadFileToCloudinary(
+                doc.asset.uri, 
+                doc.customName, 
+                doc.asset.mimeType || 'application/pdf'
+            );
+        }
+
+        if (docUrl) {
+            await api.post('/certifications/', {
+                document_url: docUrl,
+                title: doc.customName // Asegúrate que el backend acepte 'title'
+            });
+        }
+      }
 
       await setUser(userUpdateRes.data);
-
-      Alert.alert("¡Enviado! 📨", "Solicitud en revisión.", [{ text: "OK", onPress: () => navigation.goBack() }]);
+      Alert.alert("¡Solicitud Enviada! 📨", "Tus datos y certificados están siendo revisados por el equipo de InnPets.", [{ text: "Entendido", onPress: () => navigation.goBack() }]);
 
     } catch (error: any) {
-      Alert.alert("Error", "No se pudo enviar.");
+      Alert.alert("Error", "No se pudo procesar la solicitud.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Renders... (igual que antes)
   const renderRegionItem = ({ item }: any) => (
     <TouchableOpacity style={styles.modalItem} onPress={() => { setSelectedRegion(item); setSelectedComuna(''); setShowRegionModal(false); }}>
       <Text style={styles.modalItemText}>{item.region}</Text>
@@ -182,82 +179,107 @@ const BecomeProviderScreen = ({ navigation }: any) => {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: 20 }}>
+        <ScrollView contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={{marginBottom: 10}}>
-              <Text style={{fontSize: 24}}>⬅️</Text>
+              <Ionicons name="arrow-back" size={28} color={COLORS.primary} />
           </TouchableOpacity>
 
-          <Text style={styles.title}>Certificación Profesional 🎓</Text>
-          <Text style={styles.subtitle}>Completa tus datos.</Text>
+          <Text style={styles.title}>Postulación a Proveedor 🎓</Text>
+          <Text style={styles.subtitle}>Para ofrecer servicios, necesitamos validar tus conocimientos y antecedentes.</Text>
+
+          {/* 🔥 BANNER DE ADVERTENCIA */}
+          <View style={styles.warningBanner}>
+            <Ionicons name="alert-circle" size={24} color="#856404" />
+            <Text style={styles.warningText}>
+                <Text style={{fontWeight: 'bold'}}>IMPORTANTE:</Text> Es obligatorio subir tu <Text style={{fontWeight: 'bold'}}>Certificado de Antecedentes Penales</Text> para ser aprobado. Sin este documento, tu solicitud será rechazada.
+            </Text>
+          </View>
 
           <View style={styles.form}>
             <Text style={styles.sectionHeader}>1. Datos de Contacto</Text>
             
-            {/* ... INPUTS DE REGIÓN, COMUNA, ETC (IGUAL QUE ANTES) ... */}
             <Text style={styles.label}>Región *</Text>
             <TouchableOpacity style={styles.selectBtn} onPress={() => setShowRegionModal(true)}>
                 <Text style={{color: selectedRegion ? '#000' : '#999'}}>{selectedRegion ? selectedRegion.region : "Selecciona Región"}</Text>
+                <Ionicons name="chevron-down" size={20} color="#999" />
             </TouchableOpacity>
             
             <Text style={styles.label}>Comuna *</Text>
             <TouchableOpacity style={[styles.selectBtn, !selectedRegion && {backgroundColor: '#f5f5f5'}]} onPress={() => selectedRegion && setShowComunaModal(true)}>
                 <Text style={{color: selectedComuna ? '#000' : '#999'}}>{selectedComuna || "Selecciona Comuna"}</Text>
+                <Ionicons name="chevron-down" size={20} color="#999" />
             </TouchableOpacity>
 
             <Text style={styles.label}>Dirección</Text>
-            <TextInput style={styles.input} value={address} onChangeText={setAddress} placeholder="Calle 123" />
-            <Text style={styles.label}>Teléfono</Text>
-            <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-            <Text style={styles.label}>Bio</Text>
-            <TextInput style={[styles.input, styles.textArea]} multiline numberOfLines={4} value={bio} onChangeText={setBio} />
+            <TextInput style={styles.input} value={address} onChangeText={setAddress} placeholder="Ej: Av. Las Condes 1234" placeholderTextColor="#999" />
+            
+            <Text style={styles.label}>Teléfono de Contacto *</Text>
+            <TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="+569..." placeholderTextColor="#999" />
+            
+            <Text style={styles.label}>Resumen Profesional (Bio) *</Text>
+            <TextInput 
+                style={[styles.input, styles.textArea]} 
+                multiline 
+                numberOfLines={4} 
+                value={bio} 
+                onChangeText={setBio} 
+                placeholder="Cuéntanos sobre tu experiencia cuidando mascotas..."
+                placeholderTextColor="#999"
+            />
 
             <View style={styles.divider} />
-            <Text style={styles.sectionHeader}>2. Certificación</Text>
             
-            <TouchableOpacity style={styles.uploadBtn} onPress={handleSelectFile}>
-                {selectedDoc ? (
-                    docType === 'image' ? (
-                        <Image source={{ uri: selectedDoc.uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                    ) : (
-                        <View style={{alignItems:'center'}}>
-                            <Text style={{fontSize: 40}}>📄</Text>
-                            <Text style={styles.fileName}>Documento PDF Seleccionado</Text>
-                        </View>
-                    )
-                ) : (
-                    <View style={{alignItems:'center'}}>
-                        <Text style={{fontSize: 32}}>☁️</Text> 
-                        <Text style={styles.uploadText}>Toca para subir</Text>
-                    </View>
-                )}
-            </TouchableOpacity>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10}}>
+                <Text style={styles.sectionHeader}>2. Certificaciones</Text>
+                <TouchableOpacity style={styles.addSmallBtn} onPress={handleSelectFile}>
+                    <Ionicons name="add-circle" size={20} color={COLORS.white} />
+                    <Text style={{color: COLORS.white, fontWeight: 'bold', marginLeft: 5}}>Añadir</Text>
+                </TouchableOpacity>
+            </View>
 
-            {/* 👇 NUEVO: CAMPO PARA RENOMBRAR EL ARCHIVO */}
-            {selectedDoc && (
-                <View style={{marginBottom: 20}}>
-                    <Text style={styles.label}>Nombre del Archivo (Editable):</Text>
-                    <TextInput 
-                        style={styles.input} 
-                        value={customFileName} 
-                        onChangeText={setCustomFileName}
-                        placeholder="Ej: Titulo_Veterinario.pdf"
-                    />
+            {/* LISTA DE DOCUMENTOS AÑADIDOS */}
+            {documentsList.length > 0 ? (
+                <View style={{gap: 10, marginBottom: 10}}>
+                    {documentsList.map((doc) => (
+                        <View key={doc.id} style={styles.docCard}>
+                            <View style={styles.docInfo}>
+                                <Text style={{fontSize: 20}}>{doc.type === 'image' ? '🖼️' : '📄'}</Text>
+                                <View style={{flex: 1, marginLeft: 10}}>
+                                    <TextInput 
+                                        style={styles.docInputName}
+                                        value={doc.customName}
+                                        onChangeText={(val) => updateDocName(doc.id, val)}
+                                        placeholder="Nombre del certificado"
+                                    />
+                                    <Text style={{fontSize: 10, color: '#999'}}>Toca el nombre para editarlo</Text>
+                                </View>
+                                <TouchableOpacity onPress={() => removeDocument(doc.id)}>
+                                    <Ionicons name="trash-outline" size={22} color={COLORS.danger} />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    ))}
                 </View>
+            ) : (
+                <TouchableOpacity style={styles.uploadBtnPlaceholder} onPress={handleSelectFile}>
+                    <Ionicons name="cloud-upload-outline" size={40} color={COLORS.primary} />
+                    <Text style={styles.uploadText}>Sube certificados o antecedentes</Text>
+                    <Text style={{fontSize: 11, color: '#999'}}>Formatos: JPG, PNG, PDF</Text>
+                </TouchableOpacity>
             )}
 
             <TouchableOpacity style={styles.btnPrimary} onPress={handleSubmit} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Enviar Solicitud</Text>}
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Enviar Postulación</Text>}
             </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Modales... */}
       <Modal visible={showRegionModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}><View style={styles.modalContent}><FlatList data={REGIONES_CHILE} keyExtractor={i=>i.region} renderItem={renderRegionItem}/><TouchableOpacity style={styles.closeBtn} onPress={()=>setShowRegionModal(false)}><Text style={styles.closeText}>Cerrar</Text></TouchableOpacity></View></View>
+        <View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>Selecciona Región</Text><FlatList data={REGIONES_CHILE} keyExtractor={i=>i.region} renderItem={renderRegionItem}/><TouchableOpacity style={styles.closeBtn} onPress={()=>setShowRegionModal(false)}><Text style={styles.closeText}>Cerrar</Text></TouchableOpacity></View></View>
       </Modal>
       <Modal visible={showComunaModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}><View style={styles.modalContent}><FlatList data={selectedRegion?.comunas || []} keyExtractor={i=>i} renderItem={renderComunaItem}/><TouchableOpacity style={styles.closeBtn} onPress={()=>setShowComunaModal(false)}><Text style={styles.closeText}>Cerrar</Text></TouchableOpacity></View></View>
+        <View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>Selecciona Comuna</Text><FlatList data={selectedRegion?.comunas || []} keyExtractor={i=>i} renderItem={renderComunaItem}/><TouchableOpacity style={styles.closeBtn} onPress={()=>setShowComunaModal(false)}><Text style={styles.closeText}>Cerrar</Text></TouchableOpacity></View></View>
       </Modal>
     </SafeAreaView>
   );
@@ -265,22 +287,39 @@ const BecomeProviderScreen = ({ navigation }: any) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  title: { fontSize: 22, fontFamily: FONTS.bold, color: COLORS.primary, marginBottom: 5 },
-  subtitle: { color: COLORS.textLight, marginBottom: 20, fontSize: 13 },
+  title: { fontSize: 24, fontFamily: FONTS.bold, color: COLORS.primary, marginBottom: 5 },
+  subtitle: { color: COLORS.textLight, marginBottom: 15, fontSize: 13 },
+  
+  // Estilo Banner Advertencia
+  warningBanner: { backgroundColor: '#fff3cd', padding: 12, borderRadius: 12, flexDirection: 'row', alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#ffeeba' },
+  warningText: { flex: 1, marginLeft: 10, fontSize: 12, color: '#856404', lineHeight: 18 },
+
   form: { gap: 12 },
-  sectionHeader: { fontSize: 18, fontFamily: FONTS.bold, color: COLORS.textDark, marginTop: 10, marginBottom: 5 },
-  label: { fontFamily: FONTS.bold, color: COLORS.textDark, marginBottom: 2 },
-  input: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', ...SHADOWS.card },
-  textArea: { height: 80, textAlignVertical: 'top' },
-  selectBtn: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', ...SHADOWS.card },
-  divider: { height: 1, backgroundColor: '#ddd', marginVertical: 15 },
-  uploadBtn: { height: 150, borderWidth: 2, borderColor: COLORS.primary, borderStyle: 'dashed', borderRadius: 15, justifyContent: 'center', alignItems: 'center', marginBottom: 10, backgroundColor: '#F9F9F9', overflow: 'hidden' },
+  sectionHeader: { fontSize: 18, fontFamily: FONTS.bold, color: COLORS.textDark },
+  label: { fontFamily: FONTS.bold, color: COLORS.textDark, marginBottom: 2, fontSize: 14 },
+  input: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', ...SHADOWS.card, color: '#000' },
+  textArea: { height: 100, textAlignVertical: 'top' },
+  selectBtn: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee', ...SHADOWS.card, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  divider: { height: 1, backgroundColor: '#eee', marginVertical: 10 },
+  
+  // Botón añadir pequeño
+  addSmallBtn: { flexDirection: 'row', backgroundColor: COLORS.primary, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, alignItems: 'center' },
+  
+  // Placeholder subida
+  uploadBtnPlaceholder: { height: 140, borderWidth: 2, borderColor: COLORS.primary, borderStyle: 'dashed', borderRadius: 15, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F0F8FF' },
   uploadText: { fontFamily: FONTS.bold, color: COLORS.primary, marginTop: 5 },
-  fileName: { fontSize: 12, color: '#333', marginTop: 5, fontWeight: 'bold' },
-  btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10, marginBottom: 40, ...SHADOWS.card },
+  
+  // Cartas de documentos
+  docCard: { backgroundColor: COLORS.white, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee', ...SHADOWS.card },
+  docInfo: { flexDirection: 'row', alignItems: 'center' },
+  docInputName: { fontWeight: 'bold', color: COLORS.primary, borderBottomWidth: 1, borderBottomColor: '#ddd', paddingVertical: 2, fontSize: 14 },
+
+  btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 15, marginBottom: 40, ...SHADOWS.card },
   btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
+  
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: 'white', borderRadius: 20, padding: 20, maxHeight: '70%' },
+  modalTitle: { textAlign: 'center', fontFamily: FONTS.bold, fontSize: 18, marginBottom: 15 },
   modalItem: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#eee' },
   modalItemText: { fontSize: 16 },
   closeBtn: { marginTop: 15, alignItems: 'center', padding: 10 },

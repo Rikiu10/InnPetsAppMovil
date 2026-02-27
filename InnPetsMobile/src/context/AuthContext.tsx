@@ -1,6 +1,9 @@
 import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import { Alert, DeviceEventEmitter, Platform } from 'react-native'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '../services/api'; 
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
+import api, { authService } from '../services/api'; 
 
 interface AuthContextData {
   user: any;
@@ -16,11 +19,82 @@ const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true); // <-- Comienza en true para el SplashScreen
+  const [loading, setLoading] = useState(true);
+
+  const performLogout = async () => {
+      try {
+          setUser(null); 
+          await AsyncStorage.removeItem('access_token');
+          await AsyncStorage.removeItem('refresh_token'); 
+          await AsyncStorage.removeItem('user_data');
+          delete api.defaults.headers.Authorization;
+      } catch (e) {
+          console.error("Error al cerrar sesión:", e);
+      }
+  };
+
+  useEffect(() => {
+    const banListener = DeviceEventEmitter.addListener('user_banned', (reason) => {
+        Alert.alert('Cuenta Suspendida 🚫', reason || "Tu cuenta ha sido suspendida.", [
+            { text: "OK", onPress: async () => await performLogout() }
+        ], { cancelable: false });
+    });
+
+    const forceLogoutListener = DeviceEventEmitter.addListener('force_logout', () => {
+        Alert.alert('Sesión Finalizada', 'Tu sesión expiró o tu cuenta fue inhabilitada.', [
+            { text: "OK", onPress: async () => await performLogout() }
+        ], { cancelable: false });
+    });
+
+    return () => {
+        banListener.remove();
+        forceLogoutListener.remove();
+    };
+  }, []);
 
   useEffect(() => {
     loadStorageData();
   }, []);
+
+  // 🔥 NUEVA FUNCIÓN MÁGICA: Obtiene el Token de Notificaciones y lo manda a Django
+  async function registerAndSendPushToken(userData: any) {
+    try {
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'default',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#FF231F7C',
+        });
+      }
+
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        console.log('Permiso de notificaciones denegado');
+        return;
+      }
+
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      const pushTokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+      const token = pushTokenData.data;
+      
+      console.log("🔥 TOKEN DE EXPO OBTENIDO:", token);
+
+      // Enviamos el token al backend de Django
+      if (userData && userData.id) {
+          await authService.updateProfile(userData.id, { expo_push_token: token });
+          console.log("✅ Token guardado en Django con éxito");
+      }
+    } catch (error) {
+      console.log("Error configurando notificaciones:", error);
+    }
+  }
 
   async function loadStorageData() {
     try {
@@ -29,21 +103,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (storedToken) {
         api.defaults.headers.Authorization = `Bearer ${storedToken}`;
-        
         if (storedUser) {
-            setUser(JSON.parse(storedUser));
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            // Ejecutamos el registro de notificaciones al cargar la app
+            await registerAndSendPushToken(parsedUser);
         } else {
-            await refreshUser(); // Intenta recuperar los datos si solo había token
+            await refreshUser(); 
         }
       } else {
-        // Si no hay token, nos aseguramos de limpiar todo
         setUser(null);
       }
     } catch (error) {
-      console.log("Error cargando datos de sesión:", error);
       setUser(null);
     } finally {
-      // Pase lo que pase (haya sesión o no), quitamos el loading
       setLoading(false);
     }
   }
@@ -55,75 +128,40 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (userData) {
         setUser(userData);
         await AsyncStorage.setItem('user_data', JSON.stringify(userData));
+        // Ejecutamos el registro al iniciar sesión
+        await registerAndSendPushToken(userData);
     } else {
         await refreshUser();
     }
   }
 
   async function logout() {
-      try {
-          setUser(null);
-          await AsyncStorage.removeItem('access_token');
-          await AsyncStorage.removeItem('refresh_token'); 
-          await AsyncStorage.removeItem('user_data');
-          delete api.defaults.headers.Authorization;
-      } catch (e) {
-          console.error("Error al cerrar sesión:", e);
-      }
+      await performLogout();
   }
 
   async function refreshUser() {
       try {
           const storedUser = await AsyncStorage.getItem('user_data');
           let userId = null;
-          
-          if (storedUser) {
-              const parsed = JSON.parse(storedUser);
-              userId = parsed.id;
-          }
+          if (storedUser) userId = JSON.parse(storedUser).id;
 
-          let response;
-          if (userId) {
-              response = await api.get(`/users/${userId}/`);
-          } else {
-              response = await api.get('/users/');
-          }
-
-          let userData;
-          if (Array.isArray(response.data)) {
-              if (userId) {
-                  userData = response.data.find((u: any) => u.id === userId) || response.data[0];
-              } else {
-                  userData = response.data[0];
-              }
-          } else {
-              userData = response.data;
-          }
+          let response = userId ? await api.get(`/users/${userId}/`) : await api.get('/users/');
+          let userData = Array.isArray(response.data) ? (userId ? response.data.find((u: any) => u.id === userId) || response.data[0] : response.data[0]) : response.data;
 
           if (userData) {
             setUser(userData);
             await AsyncStorage.setItem('user_data', JSON.stringify(userData));
+            await registerAndSendPushToken(userData);
           } else {
-            // Si el token es inválido y no trajo data, cerramos sesión por seguridad
             await logout();
           }
-
       } catch (error) {
-          console.error("Error refrescando usuario, cerrando sesión:", error);
-          await logout(); // Token expirado o error de API -> Fuera
+          await logout(); 
       }
   }
 
   return (
-    <AuthContext.Provider value={{ 
-        user, 
-        loading, 
-        isAuthenticated: !!user, 
-        login, 
-        logout, 
-        setUser,
-        refreshUser 
-    }}>
+    <AuthContext.Provider value={{ user, loading, isAuthenticated: !!user, login, logout, setUser, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -131,8 +169,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth debe ser usado dentro de un AuthProvider');
-  }
+  if (!context) throw new Error('useAuth debe ser usado dentro de un AuthProvider');
   return context;
 }

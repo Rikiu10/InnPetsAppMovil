@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Alert, ActivityIndicator 
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Alert, ActivityIndicator, Image, Dimensions, Platform 
 } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
-import { SafeAreaView } from 'react-native-safe-area-context'; // Importante para el botón
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'; 
+import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 
@@ -17,18 +18,14 @@ interface Props {
   navigation: ServiceDetailNavProp;
 }
 
+const { height } = Dimensions.get('window');
+
 const ServiceDetailScreen = ({ route, navigation }: Props) => {
   const { service } = route.params;
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
-  
-  // 1. Validación de Usuario (Tu lógica original intacta)
   const [checkingUser, setCheckingUser] = useState(true); 
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
-
-  // Valores visuales
-  const bgColor = service.levelColor || COLORS.primary;
-  const textColor = service.levelText || COLORS.white;
-  const levelName = service.certification_level || 'Básica';
 
   useEffect(() => {
     checkCurrentUser();
@@ -61,81 +58,106 @@ const ServiceDetailScreen = ({ route, navigation }: Props) => {
   const providerUserId = getProviderUserId(service.provider);
   const isMyService = currentUserId !== null && providerUserId !== null && currentUserId === providerUserId;
 
-  // 2. Navegación Directa (Sin validación de mascota aquí)
   const handleBooking = () => {
-    // @ts-ignore
-    navigation.navigate('CreateBookingScreen', { service: service });
+    navigation.navigate('CreateBookingScreen', { service: service } as any);
   };
 
+  const getImage = (item: any) => {
+    if (item.photos_url && item.photos_url.length > 0) return { uri: item.photos_url[0] };
+    if (item.service_type === 'WALKING') return { uri: 'https://images.unsplash.com/photo-1601758228041-f3b2795255f1?auto=format&fit=crop&w=800&q=80' };
+    if (item.service_type === 'GROOMING') return { uri: 'https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?auto=format&fit=crop&w=800&q=80' };
+    if (item.service_type === 'VETERINARY') return { uri: 'https://images.unsplash.com/photo-1628009368231-760335298025?auto=format&fit=crop&w=800&q=80' };
+    return { uri: 'https://img.freepik.com/free-vector/cute-dog-sticking-tongue-out-cartoon-illustration_138676-2709.jpg' };
+  };
+
+  const unitSuffix = service.charging_unit === 'PER_HOUR' ? '/ hr' : 
+                     service.charging_unit === 'PER_SERVICE' ? '/ serv' : '';
+
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    // 🔥 ENVOLVEMOS EN UN SAFEAREAVIEW PARA LOS BORDES INFERIORES
+    <SafeAreaView style={styles.container} edges={['bottom', 'left', 'right']}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
-      {/* HEADER VISUAL (Intacto) */}
-      <View style={[styles.heroContainer, { backgroundColor: bgColor }]}>
-        <View style={styles.headerNav}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
-            <Text style={{ fontSize: 20, color: '#fff' }}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Detalle</Text>
-          <TouchableOpacity style={styles.iconBtn}>
-            <Text style={{ fontSize: 20 }}>❤️</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.heroContent}>
-          <Text style={{ fontSize: 80 }}>{service.icon || '🐾'}</Text>
-        </View>
-      </View>
-
-      {/* CONTENIDO */}
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.card}>
-          <Text style={styles.title}>{service.title}</Text>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false} bounces={false}>
+        
+        <View style={styles.imageContainer}>
+          <Image source={getImage(service)} style={styles.image} />
+          <View style={styles.imageOverlay} />
           
-          <View style={styles.badgesRow}>
-            <View style={[styles.badge, { backgroundColor: bgColor }]}>
-              <Text style={[styles.badgeText, { color: textColor }]}>Nivel {levelName}</Text>
+          <SafeAreaView style={styles.headerNav} edges={['top']}>
+            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+              <Ionicons name="chevron-back" size={24} color={COLORS.textDark} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.backButton}>
+              <Ionicons name="heart-outline" size={24} color={COLORS.textDark} />
+            </TouchableOpacity>
+          </SafeAreaView>
+        </View>
+
+        <View style={styles.contentContainer}>
+          
+          <View style={styles.topRow}>
+            <View style={[styles.badge, { backgroundColor: service.levelColor || COLORS.primary }]}>
+              <Text style={styles.badgeText}>Nivel {service.certification_level || 'Básica'}</Text>
             </View>
-            <Text style={styles.rating}>★★★★★ {service.average_rating ? Number(service.average_rating).toFixed(1) : '5.0'}</Text>
+            <View style={styles.ratingBadge}>
+              <Ionicons name="star" size={14} color="#FFB300" />
+              <Text style={styles.ratingText}>{service.average_rating ? Number(service.average_rating).toFixed(1) : 'Nuevo'}</Text>
+            </View>
           </View>
 
+          <Text style={styles.title}>{service.title}</Text>
           <View style={styles.priceContainer}>
-            <Text style={styles.price}>
-              {Number(service.price).toLocaleString('es-CL', { style: 'currency', currency: 'CLP' })}
-            </Text>
-            <Text style={styles.priceLabel}> / servicio</Text>
+            <Text style={styles.price}>${Number(service.price).toLocaleString('es-CL')}</Text>
+            <Text style={styles.priceLabel}> {unitSuffix}</Text>
           </View>
 
-          {/* 3. SECCIÓN MASCOTA ELIMINADA: Ya no se pide aquí, se pide en el siguiente paso para evitar redundancia */}
+          <View style={styles.divider} />
+
+          <View style={styles.providerCard}>
+             <View style={styles.providerAvatar}>
+                <Text style={{fontSize: 24}}>👤</Text>
+             </View>
+             <View style={{flex: 1}}>
+                <Text style={styles.providerLabel}>Ofrecido por</Text>
+                <Text style={styles.providerName}>{service.provider_name || 'InnPets Provider'}</Text>
+             </View>
+             <Ionicons name="chevron-forward" size={20} color="#ccc" />
+          </View>
+
+          <View style={styles.divider} />
 
           <Text style={styles.sectionTitle}>Sobre este servicio</Text>
           <Text style={styles.description}>
             {service.description || "Servicio profesional garantizado con los estándares de calidad InnPets."}
           </Text>
           
-          <View style={styles.divider}/>
+          <View style={styles.divider} />
           
           <Text style={styles.sectionTitle}>Ubicación</Text>
-          <Text style={styles.description}>📍 {service.comuna || 'Santiago'}, {service.region || 'Región Metropolitana'}</Text>
+          <View style={styles.locationContainer}>
+             <Ionicons name="location" size={20} color={COLORS.primary} style={{marginRight: 10}} />
+             <Text style={styles.locationText}>{service.comuna || 'Santiago'}, {service.region || 'RM'}</Text>
+          </View>
 
-          {/* AVISO DE PROPIEDAD */}
           {!checkingUser && isMyService && (
             <View style={styles.warningBox}>
-                <Text style={styles.warningText}>⚠️ Este es tu propio servicio.</Text>
+                <Ionicons name="information-circle" size={20} color="#856404" style={{marginRight: 8}}/>
+                <Text style={styles.warningText}>Este es tu propio servicio.</Text>
             </View>
           )}
 
         </View>
       </ScrollView>
 
-      {/* 4. FOOTER FLOTANTE SEGURO */}
-      {/* Usamos un View absoluto pero con paddingBottom seguro para Android/iOS */}
-      <View style={styles.footerContainer}>
+      {/* FOOTER FLOTANTE SEGURO */}
+      <View style={[styles.footerContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         {checkingUser ? (
             <ActivityIndicator color={COLORS.primary} />
         ) : isMyService ? (
             <View style={styles.btnDisabled}>
-                 <Text style={styles.btnTextDisabled}>🚫 Es tu servicio</Text>
+                 <Ionicons name="lock-closed" size={18} color="#6c757d" style={{marginRight: 8}} />
+                 <Text style={styles.btnTextDisabled}>No puedes reservarte a ti mismo</Text>
             </View>
         ) : (
             <TouchableOpacity style={styles.btnPrimary} onPress={handleBooking} disabled={loading}>
@@ -143,52 +165,44 @@ const ServiceDetailScreen = ({ route, navigation }: Props) => {
             </TouchableOpacity>
         )}
       </View>
-    </View>
+
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  heroContainer: { height: 250, paddingTop: 40, paddingHorizontal: 20, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
-  headerNav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 18 },
-  heroContent: { alignItems: 'center', justifyContent: 'center', marginTop: 20 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 120, marginTop: -30 }, // PaddingBottom grande para el footer
-  card: { backgroundColor: COLORS.white, borderRadius: 20, padding: 20, ...SHADOWS.card },
-  title: { fontFamily: FONTS.bold, fontSize: 22, color: COLORS.textDark, marginBottom: 10 },
-  badgesRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20 },
-  badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  badgeText: { fontFamily: FONTS.semiBold, fontSize: 12 },
-  rating: { color: '#ffc107', fontFamily: FONTS.bold },
-  priceContainer: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 20, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  container: { flex: 1, backgroundColor: COLORS.white },
+  imageContainer: { width: '100%', height: height * 0.4 },
+  image: { width: '100%', height: '100%', resizeMode: 'cover' },
+  imageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.2)' },
+  headerNav: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20 },
+  backButton: { backgroundColor: 'rgba(255,255,255,0.9)', width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginTop: 10, ...SHADOWS.card },
+  contentContainer: { backgroundColor: COLORS.white, borderTopLeftRadius: 30, borderTopRightRadius: 30, marginTop: -30, padding: 25 },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  badgeText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 12 },
+  ratingBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF8E1', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  ratingText: { color: '#FFB300', fontFamily: FONTS.bold, marginLeft: 5, fontSize: 14 },
+  title: { fontFamily: FONTS.bold, fontSize: 24, color: COLORS.textDark, marginBottom: 8, lineHeight: 30 },
+  priceContainer: { flexDirection: 'row', alignItems: 'baseline' },
   price: { fontSize: 28, fontFamily: FONTS.bold, color: COLORS.primary },
-  priceLabel: { color: COLORS.textLight, marginBottom: 5 },
-  sectionTitle: { fontFamily: FONTS.bold, fontSize: 16, marginBottom: 10, marginTop: 10 },
-  description: { color: COLORS.textDark, lineHeight: 22, marginBottom: 15 },
-  divider: { height: 1, backgroundColor: '#eee', marginVertical: 10 },
-  
-  // Footer Flotante
-  footerContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.white,
-    padding: 20,
-    paddingBottom: 30, // Extra padding para gestos de Android/iOS
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    elevation: 10
-  },
-  btnPrimary: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', ...SHADOWS.card },
+  priceLabel: { color: COLORS.textLight, fontSize: 16, fontFamily: FONTS.regular, marginLeft: 2, marginBottom: 4 },
+  divider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 20 },
+  providerCard: { flexDirection: 'row', alignItems: 'center' },
+  providerAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#F0F8FF', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  providerLabel: { fontSize: 12, color: COLORS.textLight, fontFamily: FONTS.regular },
+  providerName: { fontSize: 16, fontFamily: FONTS.bold, color: COLORS.textDark, marginTop: 2 },
+  sectionTitle: { fontFamily: FONTS.bold, fontSize: 18, color: COLORS.textDark, marginBottom: 12 },
+  description: { color: COLORS.textLight, lineHeight: 24, fontSize: 15, fontFamily: FONTS.regular },
+  locationContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 15, borderRadius: 12 },
+  locationText: { fontSize: 15, color: COLORS.textDark, fontFamily: FONTS.semiBold },
+  warningBox: { flexDirection: 'row', backgroundColor: '#fff3cd', padding: 15, borderRadius: 12, marginTop: 20, alignItems: 'center', borderWidth: 1, borderColor: '#ffeeba' },
+  warningText: { color: '#856404', fontFamily: FONTS.bold, flex: 1 },
+  footerContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: COLORS.white, paddingHorizontal: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#F0F0F0', shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 10 },
+  btnPrimary: { backgroundColor: COLORS.primary, paddingVertical: 16, borderRadius: 16, alignItems: 'center', ...SHADOWS.card },
   btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
-  
-  // Estilos de Validación
-  warningBox: { backgroundColor: '#fff3cd', padding: 10, borderRadius: 8, marginTop: 10, marginBottom: 10, alignItems: 'center'},
-  warningText: { color: '#856404', fontWeight: 'bold' },
-  btnDisabled: { backgroundColor: '#e2e6ea', padding: 16, borderRadius: 12, alignItems: 'center' },
-  btnTextDisabled: { color: '#6c757d', fontFamily: FONTS.bold, fontSize: 16 }
+  btnDisabled: { flexDirection: 'row', backgroundColor: '#E9ECEF', paddingVertical: 16, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  btnTextDisabled: { color: '#6C757D', fontFamily: FONTS.bold, fontSize: 15 }
 });
 
 export default ServiceDetailScreen;

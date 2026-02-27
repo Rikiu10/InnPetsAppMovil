@@ -30,8 +30,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "72ef79e7-a9b8-47e3-b96b-1e997f5d5b9e"
+        "projectId": "30bfbb92-c695-432e-b639-8367c92ea937"
       }
-    }
+    },
+    "owner": "pepitofifi"
   }
 }

@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { 
-  View, Text, StyleSheet, TextInput, TouchableOpacity, Image, FlatList, ActivityIndicator, ScrollView
+  View, Text, StyleSheet, TextInput, TouchableOpacity, Image, FlatList, ActivityIndicator, ScrollView, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons'; // 🔥 Agregamos Ionicons para los íconos
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api, { notificationService } from '../services/api';
 
@@ -11,6 +12,7 @@ import { CompositeScreenProps } from '@react-navigation/native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList, MainTabParamList } from '../types';
+import { useAuth } from '../context/AuthContext'; // 🔥 Para sacar el nombre del usuario
 
 type HomeScreenProps = CompositeScreenProps<
   BottomTabScreenProps<MainTabParamList, 'Explorar'>,
@@ -18,35 +20,28 @@ type HomeScreenProps = CompositeScreenProps<
 >;
 
 const HomeScreen = ({ navigation }: HomeScreenProps) => {
+  const { user } = useAuth(); // Sacamos el usuario logueado
   const [services, setServices] = useState<any[]>([]); 
   const [filteredServices, setFilteredServices] = useState<any[]>([]);
-  
-  // 👇 NUEVO: Estado para guardar las categorías dinámicas del backend
   const [categories, setCategories] = useState<any[]>([]);
-  
   const [loading, setLoading] = useState(true);
-  
   const [searchText, setSearchText] = useState('');
   const [activeCategory, setActiveCategory] = useState('Todos');
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // 👇 ACTUALIZADO: Trae servicios y categorías al mismo tiempo
   const fetchServices = async () => {
     try {
       const [servicesRes, categoriesRes] = await Promise.all([
         api.get('/services/'),
-        api.get('/service-categories/') // Asumiendo que esta es tu ruta en Django
+        api.get('/service-categories/') 
       ]);
       
       setServices(servicesRes.data);
       setFilteredServices(servicesRes.data); 
-      
-      // Guardamos las categorías y agregamos "Todos" al principio
       setCategories([{ id: 'todos', name: 'Todos' }, ...categoriesRes.data]);
 
     } catch (error) {
       console.log("Error cargando datos:", error);
-      // Si falla la carga de categorías, ponemos unas por defecto para que no se rompa la app
       if (categories.length === 0) {
         setCategories([
           { id: 'todos', name: 'Todos' },
@@ -73,7 +68,6 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     }, [])
   );
 
-  // 👇 ACTUALIZADO: Filtrado dinámico
   useEffect(() => {
     let result = services;
     
@@ -87,14 +81,9 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
         const backendCode = catMap[activeCategory];
         
         result = result.filter(item => {
-            // Compatibilidad con categorías antiguas (hardcoded)
             if (backendCode && item.service_type === backendCode) return true;
-            
-            // Compatibilidad con las nuevas categorías dinámicas
-            // (Dependiendo de cómo esté tu modelo, puede ser item.category.name o item.category_name)
             if (item.category?.name === activeCategory) return true;
             if (item.category_name === activeCategory) return true;
-            
             return false;
         });
     }
@@ -128,11 +117,9 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   }
 
   const getCategoryLabel = (item: any) => {
-      // Si tiene una categoría dinámica asociada, mostramos ese nombre
       if (item.category?.name) return item.category.name;
       if (item.category_name) return item.category_name;
 
-      // Si no, caemos en el mapa antiguo
       const map: Record<string, string> = {
           'WALKING': 'Paseos',
           'VETERINARY': 'Veterinaria',
@@ -150,25 +137,43 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
         onPress={() => navigation.navigate('ServiceDetail', { service: item })}
     >
         <Image source={{ uri: getImage(item) }} style={styles.cardImage} resizeMode="cover"/>
+        
+        {/* Etiqueta de Categoría Flotante */}
         <View style={styles.cardBadge}>
             <Text style={styles.cardBadgeText}>{getCategoryLabel(item)}</Text>
         </View>
+
         <View style={styles.cardContent}>
             <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start'}}>
                 <View style={{flex: 1, paddingRight: 10}}>
                     <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-                    <Text style={styles.providerName}>👤 {item.provider_name || 'Proveedor'}</Text>
-                    {item.commune && <Text style={styles.locationText}>📍 {item.commune}</Text>}
+                    
+                    {/* Información del Proveedor y Ubicación */}
+                    <View style={styles.providerRow}>
+                        <Ionicons name="person-circle-outline" size={16} color={COLORS.textLight} />
+                        <Text style={styles.providerName} numberOfLines={1}>{item.provider_name || 'Proveedor'}</Text>
+                    </View>
+                    
+                    {item.commune && (
+                        <View style={styles.locationRow}>
+                            <Ionicons name="location-outline" size={14} color={COLORS.textLight} />
+                            <Text style={styles.locationText}>{item.commune}</Text>
+                        </View>
+                    )}
                 </View>
+                
+                {/* Rating */}
                 <View style={styles.ratingBadge}>
-                    <Text style={{fontSize: 10}}>⭐</Text>
+                    <Ionicons name="star" size={12} color="#FFB300" />
                     <Text style={styles.ratingText}>{item.average_rating ? Number(item.average_rating).toFixed(1) : 'Nuevo'}</Text>
                 </View>
             </View>
+            
             <View style={styles.divider} />
+            
             <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}>
                 <Text style={styles.price}>${Number(item.price).toLocaleString('es-CL')}</Text>
-                <Text style={{color: COLORS.textLight, fontSize: 12}}>/hora</Text>
+                <Text style={styles.priceUnit}>/ hora</Text>
             </View>
         </View>
     </TouchableOpacity>
@@ -176,20 +181,19 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
 
   const ListHeader = () => (
     <View>
+        {/* HEADER PRINCIPAL */}
         <View style={styles.header}>
-            <View style={styles.logoContainer}>
-                {/* Logo Oficial de InnPets */}
-                <Image 
-                  source={require('../../assets/logo.png')} 
-                  style={{ width: 45, height: 45, resizeMode: 'contain' }} 
-                />
+            <View style={styles.userInfo}>
+                <Text style={styles.greetingText}>¡Hola{user?.first_name ? `, ${user.first_name}` : ''}! 👋</Text>
+                <Text style={styles.subGreetingText}>¿Qué necesita tu mascota hoy?</Text>
             </View>
+
             <View style={styles.actions}>
                 <TouchableOpacity 
                     style={styles.iconBtn}
                     onPress={() => navigation.navigate('NotificationsScreen')}
                 >
-                    <Text style={{fontSize: 20}}>🔔</Text>
+                    <Ionicons name="notifications-outline" size={24} color={COLORS.textDark} />
                     {unreadCount > 0 && (
                         <View style={styles.notificationDot}>
                             <Text style={styles.notificationText}>
@@ -203,56 +207,49 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
                     style={[styles.iconBtn, { backgroundColor: COLORS.primaryLight }]}
                     onPress={() => navigation.navigate('Perfil')}
                 >
-                    <Text style={{fontSize: 20}}>👤</Text>
+                    <Ionicons name="person-outline" size={22} color={COLORS.primary} />
                 </TouchableOpacity>
             </View>
         </View>
 
+        {/* BUSCADOR */}
         <View style={styles.padding}>
             <View style={styles.searchBar}>
-                <Text style={{ marginRight: 10, fontSize: 18 }}>🔍</Text>
+                <Ionicons name="search" size={20} color="#999" style={{ marginRight: 10 }} />
                 <TextInput 
-                    placeholder="¿Qué necesita tu mascota hoy?" 
+                    placeholder="Buscar paseos, veterinarias..." 
                     placeholderTextColor="#999"
-                    style={{ flex: 1, fontFamily: FONTS.regular, fontSize: 16 }}
-                    value={searchText} onChangeText={setSearchText}
+                    style={styles.searchInput}
+                    value={searchText} 
+                    onChangeText={setSearchText}
                 />
             </View>
         </View>
 
-        <View style={{ paddingLeft: 20, marginBottom: 20 }}>
-            {/* 👇 ACTUALIZADO: Pintamos las categorías dinámicas */}
+        {/* CATEGORÍAS */}
+        <View style={{ paddingLeft: 20, marginBottom: 25 }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {categories.map((cat, index) => (
-                    <TouchableOpacity 
-                        key={cat.id || index} 
-                        style={[styles.categoryChip, activeCategory === cat.name && styles.categoryChipActive]}
-                        onPress={() => setActiveCategory(cat.name)}
-                    >
-                        <Text style={[styles.categoryText, activeCategory === cat.name && styles.categoryTextActive]}>
-                            {cat.name}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
+                {categories.map((cat, index) => {
+                    const isActive = activeCategory === cat.name;
+                    return (
+                        <TouchableOpacity 
+                            key={cat.id || index} 
+                            style={[styles.categoryChip, isActive && styles.categoryChipActive]}
+                            onPress={() => setActiveCategory(cat.name)}
+                        >
+                            <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
+                                {cat.name}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
             </ScrollView>
         </View>
 
-        <View style={styles.padding}>
-            <View style={styles.statsGrid}>
-                <View style={styles.statCard}>
-                    <Text style={styles.statLabel}>Proveedores</Text>
-                    <Text style={styles.statValue}>500+</Text>
-                </View>
-                <View style={styles.statCard}>
-                    <Text style={styles.statLabel}>Certificados</Text>
-                    <Text style={styles.statValue}>100%</Text>
-                </View>
-            </View>
-        </View>
-
+        {/* TÍTULO DE SECCIÓN */}
         <View style={[styles.padding, styles.sectionHeader]}>
-            <Text style={styles.sectionTitle}>Servicios Disponibles 🔥</Text>
-            <TouchableOpacity onPress={() => setSearchText('')}>
+            <Text style={styles.sectionTitle}>Servicios Destacados 🔥</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Servicios')}>
                 <Text style={styles.sectionLink}>Ver todos</Text>
             </TouchableOpacity>
         </View>
@@ -260,11 +257,11 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {loading ? (
-        <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
+        <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={{marginTop:10, color: COLORS.textLight}}>Buscando servicios...</Text>
+            <Text style={styles.loadingText}>Buscando los mejores servicios...</Text>
         </View>
       ) : (
         <FlatList
@@ -272,12 +269,12 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
             keyExtractor={(item) => item.id.toString()}
             renderItem={renderServiceCard}
             ListHeaderComponent={ListHeader}
-            contentContainerStyle={{ paddingBottom: 100 }}
+            contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? 120 : 100 }}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
-                <View style={{alignItems:'center', marginTop: 30}}>
-                    <Text style={{fontSize: 40}}>🐶</Text>
-                    <Text style={{color: '#999', marginTop: 10}}>No se encontraron servicios.</Text>
+                <View style={styles.emptyState}>
+                    <Ionicons name="paw-outline" size={60} color="#ccc" />
+                    <Text style={styles.emptyText}>No se encontraron servicios en esta categoría.</Text>
                 </View>
             }
         />
@@ -287,43 +284,68 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAFA' },
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
   padding: { paddingHorizontal: 20, marginBottom: 20 },
+  
+  // Header
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 15, backgroundColor: COLORS.white, 
-    marginBottom: 20
+    paddingHorizontal: 20, paddingTop: Platform.OS === 'android' ? 20 : 10, paddingBottom: 20, 
+    backgroundColor: '#F8F9FA'
   },
-  logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logoText: { fontFamily: FONTS.bold, fontSize: 24, color: COLORS.primary },
+  userInfo: { flex: 1 },
+  greetingText: { fontFamily: FONTS.bold, fontSize: 24, color: COLORS.textDark, marginBottom: 4 },
+  subGreetingText: { fontFamily: FONTS.regular, fontSize: 14, color: COLORS.textLight },
+  
+  // Acciones (Iconos)
   actions: { flexDirection: 'row', gap: 12 },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center' },
-  notificationDot: { position: 'absolute', top: -2, right: -2, backgroundColor: 'red', borderRadius: 10, width: 18, height: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'white' },
-  notificationText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white, padding: 15, borderRadius: 15, ...SHADOWS.card, borderWidth: 1, borderColor: '#F0F0F0' },
-  categoryChip: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, backgroundColor: COLORS.white, marginRight: 10, borderWidth: 1, borderColor: '#EEE' },
+  iconBtn: { width: 45, height: 45, borderRadius: 25, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', ...SHADOWS.card },
+  notificationDot: { position: 'absolute', top: -2, right: -2, backgroundColor: COLORS.danger, borderRadius: 10, minWidth: 20, height: 20, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'white', paddingHorizontal: 4 },
+  notificationText: { color: 'white', fontSize: 10, fontFamily: FONTS.bold },
+  
+  // Buscador
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white, paddingHorizontal: 15, paddingVertical: Platform.OS === 'ios' ? 15 : 10, borderRadius: 16, ...SHADOWS.card },
+  searchInput: { flex: 1, fontFamily: FONTS.regular, fontSize: 16, color: COLORS.textDark },
+  
+  // Categorías
+  categoryChip: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, backgroundColor: COLORS.white, marginRight: 12, ...SHADOWS.card, borderWidth: 1, borderColor: 'transparent' },
   categoryChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  categoryText: { fontFamily: FONTS.bold, color: COLORS.textLight },
-  categoryTextActive: { color: 'white' },
-  statsGrid: { flexDirection: 'row', gap: 15 },
-  statCard: { flex: 1, backgroundColor: COLORS.white, padding: 15, borderRadius: 15, ...SHADOWS.card, alignItems: 'center', justifyContent: 'center' },
-  statValue: { fontSize: 22, fontFamily: FONTS.bold, color: COLORS.primary, marginTop: 5 },
-  statLabel: { color: COLORS.textLight, fontSize: 12 },
+  categoryText: { fontFamily: FONTS.semiBold, color: COLORS.textLight, fontSize: 14 },
+  categoryTextActive: { color: COLORS.white, fontFamily: FONTS.bold },
+  
+  // Secciones
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  sectionTitle: { fontFamily: FONTS.bold, fontSize: 20, color: '#333' },
-  sectionLink: { color: COLORS.primary, fontWeight: 'bold', fontSize: 14 },
+  sectionTitle: { fontFamily: FONTS.bold, fontSize: 20, color: COLORS.textDark },
+  sectionLink: { color: COLORS.primary, fontFamily: FONTS.bold, fontSize: 14 },
+  
+  // Tarjetas de Servicio
   serviceCard: { backgroundColor: COLORS.white, borderRadius: 20, marginBottom: 20, marginHorizontal: 20, ...SHADOWS.card, overflow: 'hidden' },
-  cardImage: { width: '100%', height: 160, backgroundColor: '#EEE' },
-  cardBadge: { position: 'absolute', top: 15, left: 15, backgroundColor: 'rgba(255,255,255,0.95)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
-  cardBadgeText: { color: COLORS.primary, fontWeight: 'bold', fontSize: 12 },
-  cardContent: { padding: 15 },
-  cardTitle: { fontFamily: FONTS.bold, fontSize: 18, color: '#333', marginBottom: 4 },
-  providerName: { fontSize: 13, color: '#666', marginBottom: 2 },
-  locationText: { fontSize: 12, color: '#888', fontStyle: 'italic' },
+  cardImage: { width: '100%', height: 180, backgroundColor: '#EAEAEA' },
+  cardBadge: { position: 'absolute', top: 15, left: 15, backgroundColor: 'rgba(255,255,255,0.95)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  cardBadgeText: { color: COLORS.primary, fontFamily: FONTS.bold, fontSize: 12 },
+  
+  cardContent: { padding: 18 },
+  cardTitle: { fontFamily: FONTS.bold, fontSize: 18, color: COLORS.textDark, marginBottom: 8 },
+  
+  providerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  providerName: { fontSize: 13, fontFamily: FONTS.regular, color: COLORS.textLight, marginLeft: 6 },
+  
+  locationRow: { flexDirection: 'row', alignItems: 'center' },
+  locationText: { fontSize: 12, fontFamily: FONTS.regular, color: COLORS.textLight, marginLeft: 6 },
+  
   ratingBadge: { flexDirection:'row', alignItems:'center', backgroundColor:'#FFF8E1', paddingHorizontal:8, paddingVertical:4, borderRadius:8 },
-  ratingText: { fontSize: 12, fontWeight:'bold', color:'#FFB300', marginLeft:4 },
-  divider: { height: 1, backgroundColor: '#F5F5F5', marginVertical: 10 },
-  price: { fontFamily: FONTS.bold, fontSize: 20, color: COLORS.primary }
+  ratingText: { fontSize: 12, fontFamily: FONTS.bold, color:'#FFB300', marginLeft:4 },
+  
+  divider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 15 },
+  
+  price: { fontFamily: FONTS.bold, fontSize: 22, color: COLORS.primary },
+  priceUnit: { fontFamily: FONTS.regular, color: COLORS.textLight, fontSize: 14 },
+
+  // Estados de Carga / Vacío
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: COLORS.textLight, fontFamily: FONTS.semiBold },
+  emptyState: { alignItems: 'center', marginTop: 50 },
+  emptyText: { color: '#999', marginTop: 15, fontFamily: FONTS.regular, fontSize: 16 }
 });
 
 export default HomeScreen;

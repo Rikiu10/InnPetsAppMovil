@@ -16,8 +16,6 @@ const CreateTicketScreen = ({ navigation }: any) => {
     // Archivo
     const [selectedFile, setSelectedFile] = useState<any>(null);
     const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
-    
-    // 👇 NUEVO: Nombre editable del archivo
     const [customFileName, setCustomFileName] = useState('');
 
     const handleAttachFile = () => {
@@ -37,10 +35,9 @@ const CreateTicketScreen = ({ navigation }: any) => {
         const result = await ImagePicker.launchCameraAsync({ quality: 0.5 });
         if (!result.canceled) {
             const asset = result.assets[0];
-            const name = `foto_ticket_${Date.now()}.jpg`;
             setSelectedFile(asset);
             setFileType('image');
-            setCustomFileName(name);
+            setCustomFileName(`foto_ticket_${Date.now()}.jpg`);
         }
     };
 
@@ -48,10 +45,9 @@ const CreateTicketScreen = ({ navigation }: any) => {
         const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.5 });
         if (!result.canceled) {
             const asset = result.assets[0];
-            const name = asset.fileName || `img_ticket_${Date.now()}.jpg`;
             setSelectedFile(asset);
             setFileType('image');
-            setCustomFileName(name);
+            setCustomFileName(asset.fileName || `img_ticket_${Date.now()}.jpg`);
         }
     };
 
@@ -59,10 +55,9 @@ const CreateTicketScreen = ({ navigation }: any) => {
         try {
             const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
             if (!result.canceled && result.assets) {
-                const file = result.assets[0];
-                setSelectedFile(file);
+                setSelectedFile(result.assets[0]);
                 setFileType('pdf');
-                setCustomFileName(file.name);
+                setCustomFileName(result.assets[0].name);
             }
         } catch (err) { console.log(err); }
     };
@@ -79,32 +74,37 @@ const CreateTicketScreen = ({ navigation }: any) => {
 
             if (selectedFile) {
                 if (fileType === 'image') {
-                    // Para imágenes, Cloudinary suele manejar el nombre internamente, 
-                    // pero intentaremos subirlo tal cual.
                     fileUrl = await uploadImageToCloudinary(selectedFile.uri);
                 } else {
-                    // Para PDF, usamos el nombre personalizado
-                    fileUrl = await uploadFileToCloudinary(
-                        selectedFile.uri, 
-                        customFileName, // 👈 USAMOS EL NOMBRE EDITADO
-                        selectedFile.mimeType || 'application/pdf'
-                    );
+                    fileUrl = await uploadFileToCloudinary(selectedFile.uri, customFileName, selectedFile.mimeType || 'application/pdf');
                 }
             }
 
-            await api.post('/chat/create-ticket/', {
-                subject: subject,
-                message: message,
-                priority: 'MEDIUM',
-                attachment: fileUrl 
-            });
+            // 🔥 PAYLOAD LIMPIO Y UNIFICADO
+            const payload = {
+                message: `📌 ASUNTO: ${subject}\n\n${message}`,
+                attachment_url: fileUrl 
+            };
 
-            Alert.alert("¡Enviado! 📨", "Ticket creado correctamente.", [
+            // 🔥 URL CON BARRA FINAL (MUY IMPORTANTE PARA DJANGO)
+            await api.post('/chat/create-ticket/', payload);
+
+            Alert.alert("¡Enviado! 📨", "Ticket creado correctamente. Un administrador te responderá pronto.", [
                 { text: "OK", onPress: () => navigation.goBack() }
             ]);
+            
         } catch (error: any) {
-            const errorMsg = error.response?.data?.detail || "No se pudo enviar el ticket.";
-            Alert.alert("Error", errorMsg);
+            console.error("Detalle del Error:", error);
+            
+            // 🔥 DETECTOR DE ERRORES EXTREMO (Si sale esto, le tomas foto)
+            const status = error.response?.status || "Error de Red / Timeout";
+            const serverData = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+            
+            Alert.alert(
+                "Error Técnico 🚨", 
+                `Status: ${status}\n\nDetalle:\n${serverData}`,
+                [{ text: "Entendido" }]
+            );
         } finally {
             setLoading(false);
         }
@@ -120,7 +120,7 @@ const CreateTicketScreen = ({ navigation }: any) => {
             </View>
 
             <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{flex:1}}>
-                <ScrollView contentContainerStyle={styles.form}>
+                <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
                     <Text style={styles.label}>Asunto</Text>
                     <TextInput 
                         style={styles.input} 
@@ -137,7 +137,6 @@ const CreateTicketScreen = ({ navigation }: any) => {
                         textAlignVertical="top"
                     />
 
-                    {/* BOTÓN ADJUNTAR */}
                     <TouchableOpacity style={styles.attachBtn} onPress={handleAttachFile}>
                         {selectedFile ? (
                             <View style={{flexDirection:'row', alignItems:'center'}}>
@@ -152,7 +151,6 @@ const CreateTicketScreen = ({ navigation }: any) => {
                         )}
                     </TouchableOpacity>
 
-                    {/* 👇 CAMPO PARA EDITAR NOMBRE DEL ARCHIVO */}
                     {selectedFile && (
                         <View style={{marginBottom: 20}}>
                             <Text style={styles.label}>Nombre del Archivo:</Text>

@@ -21,7 +21,6 @@ import { RootStackParamList } from '../types';
 import { REGIONES_CHILE } from '../constants/chile_data'; 
 import { Ionicons } from '@expo/vector-icons';
 
-// 👇 IMPORTS DE ARCHIVOS
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadFileToCloudinary } from '../services/fileService';
@@ -42,7 +41,6 @@ const RegisterScreen = ({ navigation }: Props) => {
   const [role, setRole] = useState<'PP' | 'IP'>('PP');
   const [loading, setLoading] = useState(false);
 
-  // 1. ESTADO DEL FORMULARIO
   const [form, setForm] = useState({
     first_name: '', 
     last_name: '', 
@@ -53,7 +51,6 @@ const RegisterScreen = ({ navigation }: Props) => {
     address: ''
   });
 
-  // 👇 ESTADOS PARA EL ARCHIVO DE IDENTIDAD
   const [selectedFile, setSelectedFile] = useState<any>(null);
   const [fileType, setFileType] = useState<'image' | 'pdf' | null>(null);
   const [customFileName, setCustomFileName] = useState('');
@@ -170,7 +167,6 @@ const RegisterScreen = ({ navigation }: Props) => {
     if (!selectedRegion) { tempErrors.region = 'Selecciona una región'; valid = false; }
     if (!selectedComuna) { tempErrors.comuna = 'Selecciona una comuna'; valid = false; }
 
-    // 👇 VALIDAR ARCHIVO
     if (!selectedFile) { tempErrors.file = 'Debes subir una foto de tu carnet'; valid = false; }
 
     setErrors(tempErrors);
@@ -187,7 +183,6 @@ const RegisterScreen = ({ navigation }: Props) => {
     try {
       let identificationUrl = null;
 
-      // 1. SUBIR ARCHIVO
       if (selectedFile) {
           if (fileType === 'image') {
               identificationUrl = await uploadImageToCloudinary(selectedFile.uri);
@@ -204,21 +199,19 @@ const RegisterScreen = ({ navigation }: Props) => {
           throw new Error("Error al subir el archivo de identificación.");
       }
 
-      // 2. ENVIAR REGISTRO AL BACKEND
       await authService.register({
         email: form.email,
         password: form.password,
         first_name: form.first_name,
         last_name: form.last_name,
         identification_number: form.rut,
-        photo_identification_url: identificationUrl, // 👈 ENVIAMOS LA URL
+        photo_identification_url: identificationUrl,
         user_type: role,
         region: selectedRegion.region,
         comuna: selectedComuna,
         address: form.address 
       });
       
-      // 👇 LO NUEVO: En vez de ir al Login, vamos a verificar el correo
       navigation.navigate('VerifyOTP', { email: form.email });
 
     } catch (error: any) {
@@ -236,6 +229,15 @@ const RegisterScreen = ({ navigation }: Props) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 🔥 NUEVA FUNCIÓN: Alerta de Transparencia
+  const showIdentityInfo = () => {
+    Alert.alert(
+        "Privacidad y Seguridad",
+        "Solicitamos tu RUT y Carnet por motivos de transparencia y seguridad. Esto nos permite garantizar que todas las cuentas en la plataforma pertenezcan a personas reales y proteger a nuestra comunidad.",
+        [{ text: "Entendido", style: "default" }]
+    );
   };
 
   const renderRegionItem = ({ item }: any) => (
@@ -283,14 +285,25 @@ const RegisterScreen = ({ navigation }: Props) => {
             </View>
 
             <View>
-                <Text style={styles.sectionLabel}>RUT</Text>
+                {/* 🔥 AGREGADO: Botón de info junto al RUT */}
+                <View style={styles.labelRow}>
+                    <Text style={styles.sectionLabel}>RUT</Text>
+                    <TouchableOpacity onPress={showIdentityInfo}>
+                        <Ionicons name="information-circle-outline" size={18} color={COLORS.primary} />
+                    </TouchableOpacity>
+                </View>
                 <TextInput placeholder="Ej: 12.345.678-9" placeholderTextColor="#999" style={[styles.input, errors.rut && styles.inputError]} value={form.rut} onChangeText={handleRutChange} autoCorrect={false} autoComplete="off" keyboardType="visible-password" autoCapitalize="characters"/>
                 {errors.rut && <Text style={styles.errorText}>{errors.rut}</Text>}
             </View>
 
-            {/* 👇 BOTÓN SUBIDA DE CARNET */}
             <View>
-                <Text style={styles.sectionLabel}>Verificación de Identidad (Carnet)</Text>
+                {/* 🔥 AGREGADO: Botón de info junto al Carnet */}
+                <View style={styles.labelRow}>
+                    <Text style={styles.sectionLabel}>Verificación de Identidad (Carnet)</Text>
+                    <TouchableOpacity onPress={showIdentityInfo}>
+                        <Ionicons name="information-circle-outline" size={18} color={COLORS.primary} />
+                    </TouchableOpacity>
+                </View>
                 <TouchableOpacity style={[styles.uploadBtn, errors.file && {borderColor: COLORS.danger}]} onPress={handleSelectFile}>
                     {selectedFile ? (
                         <View style={{flexDirection: 'row', alignItems: 'center'}}>
@@ -370,6 +383,10 @@ const styles = StyleSheet.create({
   roleBtn: { flex: 1, backgroundColor: COLORS.white, padding: 15, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: 'transparent', ...SHADOWS.card },
   roleText: { marginTop: 5, fontFamily: FONTS.bold, color: COLORS.textLight },
   form: { gap: 15 },
+  
+  // 🔥 AGREGADO: Para alinear el texto y el ícono de ayuda
+  labelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5, gap: 5 },
+  
   input: { backgroundColor: COLORS.white, padding: 15, borderRadius: 12, ...SHADOWS.card, color: '#000000', borderWidth: 1, borderColor: 'transparent' },
   inputError: { borderColor: COLORS.danger, borderWidth: 1 },
   errorText: { color: COLORS.danger, fontSize: 12, marginTop: 4, marginLeft: 5, fontFamily: FONTS.regular },

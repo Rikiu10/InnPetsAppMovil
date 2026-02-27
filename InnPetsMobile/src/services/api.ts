@@ -1,8 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DeviceEventEmitter } from 'react-native'; 
 import { AuthResponse, Service, ServiceCategory } from '../types';
 
-// URL DEL SERVIDOR
 const API_URL = 'https://innpets.cl/api'; 
 
 const api = axios.create({
@@ -28,44 +28,60 @@ api.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
+        const errorData = error.response?.data;
+        const status = error.response?.status;
 
-        // Si el error es 401 (No autorizado) y no hemos reintentado ya
-        if (error.response?.status === 401 && !originalRequest._retry) {
-            originalRequest._retry = true; // Marcamos para no entrar en un bucle infinito
+        // 1. DETECCIÓN DE BANEO: Si el backend nos da detalles explícitos
+        const isSuspended = 
+            errorData?.error === 'suspended' || 
+            (Array.isArray(errorData?.error) && errorData.error.includes('suspended')) ||
+            errorData?.code === 'user_inactive' || 
+            (errorData?.detail && typeof errorData.detail === 'string' && errorData.detail.toLowerCase().includes('inactive'));
+
+        if (isSuspended) {
+            let motivo = "Tu cuenta ha sido suspendida por un administrador.";
+            if (errorData?.detail && errorData.detail !== 'User is inactive or deleted.') {
+                motivo = Array.isArray(errorData.detail) ? errorData.detail[0] : errorData.detail;
+            }
+            
+            // Disparamos el evento para expulsar
+            DeviceEventEmitter.emit('user_banned', motivo);
+            return Promise.reject(error);
+        }
+
+        // 2. Lógica normal de Refresh Token
+        if (status === 401 && !originalRequest._retry) {
+            originalRequest._retry = true; 
 
             try {
-                // Buscamos el refresh token guardado
                 const refreshToken = await AsyncStorage.getItem('refresh_token');
                 
                 if (refreshToken) {
                     console.log("🔄 Intentando refrescar el token...");
-                    
-                    // Hacemos la petición a Django con axios puro para evitar el interceptor
                     const response = await axios.post(`${API_URL}/auth/refresh/`, {
                         refresh: refreshToken
                     });
 
                     const newAccessToken = response.data.access;
-                    
-                    // Guardamos el nuevo token de acceso
                     await AsyncStorage.setItem('access_token', newAccessToken);
                     
-                    // Actualizamos el header de la petición original que había fallado y la reintentamos
                     originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-                    console.log("✅ Token refrescado con éxito. Reintentando petición...");
-                    
+                    console.log("✅ Token refrescado con éxito.");
                     return api(originalRequest);
+                } else {
+                    // Si no hay refresh token, forzamos salida
+                    DeviceEventEmitter.emit('force_logout');
                 }
             } catch (refreshError) {
-                console.error("🚨 El Refresh Token también expiró. La sesión ha muerto.");
-                // Aquí podrías despachar tu función de 'logout' del AuthContext si la tienes,
-                // o simplemente limpiar el storage para que vuelva al Login.
+                console.error("🚨 El Refresh Token falló. La sesión ha muerto.");
                 await AsyncStorage.removeItem('access_token');
                 await AsyncStorage.removeItem('refresh_token');
+                // 🔥 LA CLAVE: Avisamos a la UI que cambie a la pantalla de Login
+                DeviceEventEmitter.emit('force_logout');
+                return Promise.reject(refreshError);
             }
         }
 
-        // Si no es 401 o el refresh falló, devolvemos el error normal
         if (!error.response) console.error("🚨 Error de Red:", error.message);
         else console.error("⚠️ Error Servidor:", error.response.status, error.response.data);
         
@@ -91,13 +107,19 @@ export const authService = {
     return response.data;
   },
   verifyOTP: async (email: string, otp: string) => {
-    // ✅ Faltaba extraer el .data
     const response = await api.post('/auth/verify-otp/', { email, otp });
     return response.data; 
   },
   resendOTP: async (email: string) => {
-    // ✅ Faltaba extraer el .data
     const response = await api.post('/auth/resend-otp/', { email });
+    return response.data; 
+  },
+  appealID: async (email: string, rut: string, photoUrl: string) => {
+    const response = await api.post('/auth/appeal-id/', { 
+      email: email,
+      identification_number: rut,
+      photo_identification_url: photoUrl
+    });
     return response.data; 
   },
 };
@@ -170,20 +192,16 @@ export const notificationService = {
     }
 };
 
-// 🔥 SERVICIO DEL MARKETPLACE CORREGIDO
 export const marketplaceService = {
   getAll: async () => {
-      // 👇 Cambiado a /marketplace/
       const response = await api.get('/marketplace/');
       return response.data;
   },
   create: async (data: any) => {
-      // 👇 Cambiado a /marketplace/
       const response = await api.post('/marketplace/', data);
       return response.data;
   },
   delete: async (id: number) => {
-      // 👇 Cambiado a /marketplace/
       await api.delete(`/marketplace/${id}/`);
       return true;
   }

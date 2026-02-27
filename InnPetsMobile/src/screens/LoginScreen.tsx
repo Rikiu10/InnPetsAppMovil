@@ -66,30 +66,60 @@ const LoginScreen = ({ navigation }: Props) => {
       const errorData = error.response?.data;
       const errorStatus = error.response?.status;
 
-      // Detectamos si falta verificar (soportando arreglos de DRF)
+      // Detectamos los 3 tipos de errores especiales
       const isUnverified = 
         errorData?.error === 'unverified' || 
         (Array.isArray(errorData?.error) && errorData.error.includes('unverified')) ||
         (Array.isArray(errorData?.non_field_errors) && errorData.non_field_errors[0]?.includes('verificar'));
 
+      const isIdRejected = 
+        errorData?.error === 'id_rejected' || 
+        (Array.isArray(errorData?.error) && errorData.error.includes('id_rejected'));
+
+      const isSuspended = 
+        errorData?.error === 'suspended' || 
+        (Array.isArray(errorData?.error) && errorData.error.includes('suspended'));
+
+      // ----------------------------------------------------
+      // LÓGICA DE REDIRECCIÓN SEGÚN ERROR
+      // ----------------------------------------------------
       if (isUnverified) {
-        // Extraemos el email correctamente si viene en arreglo
         let unverifiedEmail = cleanEmail;
         if (errorData?.email) {
             unverifiedEmail = Array.isArray(errorData.email) ? errorData.email[0] : errorData.email;
         }
-
         Alert.alert(
           'Cuenta pendiente ⚠️', 
           'Tu cuenta no ha sido activada. Ingresa el código de 6 dígitos para continuar.',
-          [
-            { 
-              text: 'Verificar ahora', 
-              onPress: () => navigation.navigate('VerifyOTP', { email: unverifiedEmail }) 
-            }
-          ]
+          [{ text: 'Verificar ahora', onPress: () => navigation.navigate('VerifyOTP', { email: unverifiedEmail }) }]
         );
       } 
+      
+      // 🔥 AQUÍ ESTÁ EL ARREGLO PARA EL RECHAZO DE CARNET
+      else if (isIdRejected) {
+        let rejectedEmail = cleanEmail;
+        if (errorData?.email) {
+            rejectedEmail = Array.isArray(errorData.email) ? errorData.email[0] : errorData.email;
+        }
+        
+        let motivo = errorData?.detail || "Tu documento fue rechazado. Intenta nuevamente.";
+        if (Array.isArray(motivo)) motivo = motivo[0];
+
+        // Usamos setTimeOut para evitar conflictos si la pantalla anterior no ha terminado de cerrar
+        setTimeout(() => {
+             navigation.navigate('ResubmitID', { email: rejectedEmail, motivo: motivo });
+        }, 100);
+      }
+      
+      // 🚨 BANEO GENERAL
+      else if (isSuspended) {
+        let motivo = errorData?.detail || "Tu cuenta ha sido suspendida por un administrador.";
+        if (Array.isArray(motivo)) motivo = motivo[0];
+
+        Alert.alert('Cuenta Suspendida 🚫', motivo);
+      }
+      
+      // ERROR CLÁSICO (Clave mal)
       else if (errorStatus === 401 || errorData?.detail) {
         setErrors({ detail: 'Correo o contraseña incorrectos.' });
       } 
