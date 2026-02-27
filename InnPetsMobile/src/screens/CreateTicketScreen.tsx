@@ -190,6 +190,6 @@ const styles = StyleSheet.create({
     deleteFileBtn: { backgroundColor: '#FFEBEE', width: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FFCDD2' },
     btn: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12, alignItems: 'center', ...SHADOWS.card },
     btnText: { color: 'white', fontFamily: FONTS.bold, fontSize: 16 }
-});
-
+})
+}
 export default CreateTicketScreen;

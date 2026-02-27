@@ -119,7 +119,7 @@ const ChatListScreen = ({ route, navigation }: any) => {
           setCreatingTicket(false);
       }
   };
-
+  
   const renderItem = ({ item }: any) => {
     // Si es sala de soporte, forzamos la UI
     if (item.room_type === 'SUPPORT') {
