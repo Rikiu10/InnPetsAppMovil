@@ -28,10 +28,14 @@ const ChatScreen = ({ route, navigation }: any) => {
   const [customFileName, setCustomFileName] = useState(''); 
   const [showAttachMenu, setShowAttachMenu] = useState(false);
 
+  // 🔥 ESTADOS DEL SISTEMA DE RESEÑAS
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [rating, setRating] = useState(0);
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
+  
+  // 🔥 NUEVO ESTADO: BARRERA PARA SABER SI YA CALIFICÓ
+  const [hasReviewed, setHasReviewed] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
 
@@ -48,6 +52,10 @@ const ChatScreen = ({ route, navigation }: any) => {
               }
               if (response.data.status === 'CLOSED' || response.data.is_active === false) {
                   setIsClosed(true);
+              }
+              // Si el backend envía que ya tiene review, la ocultamos de entrada
+              if (response.data.has_review) {
+                  setHasReviewed(true);
               }
           }
       } catch (error) {
@@ -99,9 +107,13 @@ const ChatScreen = ({ route, navigation }: any) => {
               setIsClosed(true);
               setLoading(false);
               
-              Alert.alert("¡Ticket Resuelto!", "Por favor califica nuestra atención.", [
-                  { text: "Calificar", onPress: () => setShowReviewModal(true) }
-              ]);
+              // Solo mostramos el modal si NO ha calificado
+              if (!hasReviewed) {
+                  Alert.alert("¡Ticket Resuelto!", "Por favor califica nuestra atención.", [
+                      { text: "Calificar", onPress: () => setShowReviewModal(true) },
+                      { text: "Más tarde", style: "cancel" }
+                  ]);
+              }
             } catch (error) {
               Alert.alert("Error", "No se pudo cerrar el ticket.");
               setLoading(false);
@@ -126,10 +138,14 @@ const ChatScreen = ({ route, navigation }: any) => {
           });
           Alert.alert("¡Gracias!", "Tu calificación ha sido enviada exitosamente.");
           setShowReviewModal(false);
+          // 🔥 DESAPARECEMOS EL BOTÓN AL INSTANTE
+          setHasReviewed(true);
       } catch (error: any) {
           const detail = error.response?.data?.detail || "Ya enviaste una reseña para este ticket o ocurrió un error.";
           Alert.alert("Aviso", detail);
           setShowReviewModal(false);
+          // Por si falló porque ya existía, también lo ocultamos
+          if (detail.includes("Ya enviaste")) setHasReviewed(true);
       } finally {
           setSubmittingReview(false);
       }
@@ -303,12 +319,14 @@ const ChatScreen = ({ route, navigation }: any) => {
                 <View style={styles.closedTicketBanner}>
                     <Text style={styles.closedTicketTextBanner}>Este ticket ha sido finalizado. 🔒</Text>
                     
-                    {/* 🔥 BOTONES CUANDO ESTÁ CERRADO (Calificar + Crear Nuevo) */}
                     {isSupportRoom && (
                         <View style={{flexDirection: 'row', gap: 10, width: '100%', justifyContent: 'center'}}>
-                            <TouchableOpacity onPress={() => setShowReviewModal(true)} style={[styles.rateBtn, {backgroundColor: '#FF9800'}]}>
-                                <Text style={styles.rateBtnText}>⭐ Calificar</Text>
-                            </TouchableOpacity>
+                            {/* 🔥 LA BARRERA VISUAL: Si ya calificó, ocultamos el botón naranja */}
+                            {!hasReviewed && (
+                                <TouchableOpacity onPress={() => setShowReviewModal(true)} style={[styles.rateBtn, {backgroundColor: '#FF9800'}]}>
+                                    <Text style={styles.rateBtnText}>⭐ Calificar</Text>
+                                </TouchableOpacity>
+                            )}
                             
                             <TouchableOpacity 
                                 onPress={() => navigation.navigate('CreateTicket')} 

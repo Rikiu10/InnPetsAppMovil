@@ -3,11 +3,11 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Linking 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native'; // 🔥 NUEVO: Para auto-recargar
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api, { paymentService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import * as WebBrowser from 'expo-web-browser';
-// 👇 Importamos tu componente visual de pago
 import PaymentSection from '../components/PaymentSection';
 
 const BookingDetailScreen = ({ route, navigation }: any) => {
@@ -19,17 +19,14 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
   const [refreshing, setRefreshing] = useState(false);
   const [paying, setPaying] = useState(false); 
 
-  // 👇 LÓGICA DE DETECCIÓN DE ROL (Mantenemos la que funcionó ✅)
   const checkIsProvider = () => {
       if (!user || !booking) return false;
 
-      // 1. Email (Prioridad)
       const providerEmail = booking.provider_email || booking.provider?.email;
       if (providerEmail && user.email) {
           if (providerEmail.toLowerCase() === user.email.toLowerCase()) return true;
       }
 
-      // 2. IDs
       let providerIdFromBooking = null;
       if (typeof booking.provider === 'number') providerIdFromBooking = booking.provider;
       else if (typeof booking.provider === 'object' && booking.provider?.id) providerIdFromBooking = booking.provider.id;
@@ -45,7 +42,6 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
   const amITheProvider = checkIsProvider();
   const activeRole = amITheProvider ? 'IP' : 'PP';
 
-  // DETECCIÓN DE RETORNO DE PAGO
   useEffect(() => {
     const handleUrl = (event: { url: string }) => {
         if (event.url.includes('payment_success') || event.url.includes('approved') || event.url.includes('collection_status=approved')) {
@@ -69,6 +65,13 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
     }
   }, [booking.id]);
 
+  // 🔥 AUTO-REFRESCAR: Cuando vuelvas de la pantalla de reseñas, actualizará los datos sola
+  useFocusEffect(
+    useCallback(() => {
+      onRefresh();
+    }, [onRefresh])
+  );
+
   const updateStatus = async (newStatus: string) => {
     setLoading(true);
     try {
@@ -76,7 +79,6 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
       setBooking({ ...booking, status: newStatus });
       
       let msg = "Estado actualizado.";
-      // 👇 CAMBIO CRÍTICO: Mensajes ajustados al flujo directo
       if (newStatus === 'CONFIRMED') msg = "¡Reserva Aceptada! El cliente ahora podrá realizar el pago.";
       if (newStatus === 'COMPLETED') msg = "Servicio Completado. ¡Gracias!";
       if (newStatus === 'REJECTED') msg = "Reserva Rechazada.";
@@ -119,7 +121,7 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
   const getStatusLabel = (status: string) => {
     const map: any = {
         'PENDING': '⏳ Pendiente de Aprobación',
-        'CONFIRMED': '✅ Confirmada (Esperando Pago)', // 👇 Ajustamos el texto
+        'CONFIRMED': '✅ Confirmada (Esperando Pago)', 
         'IN_PROGRESS': '🏃 En Curso',
         'COMPLETED': '🏆 Completada',
         'CANCELLED': '🚫 Cancelada',
@@ -127,6 +129,10 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
     };
     return map[status] || status;
   };
+
+  // 🔥 BANDERA DE RESEÑA: Verificamos si el backend ya nos avisa que hay reseña
+  // (Cubrimos varios nombres comunes por si tu compañero usó uno distinto)
+  const hasAlreadyReviewed = booking.has_review || booking.reviewed || booking.has_reviewed || false;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -170,7 +176,6 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
             ) : null}
         </View>
 
-        {/* 👇 CAMBIO CRÍTICO: El botón de pago aparece si es DUEÑO y está CONFIRMADA */}
         {activeRole === 'PP' && booking.status === 'CONFIRMED' && (
             <PaymentSection 
                 booking={booking} 
@@ -205,14 +210,12 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
                                 <Text style={styles.btnText}>Rechazar</Text>
                             </TouchableOpacity>
                             
-                            {/* 👇 CAMBIO CRÍTICO: Enviamos 'CONFIRMED' directamente */}
                             <TouchableOpacity style={styles.btnAccept} onPress={() => updateStatus('CONFIRMED')} disabled={loading}>
                                 {loading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>Aceptar Reserva</Text>}
                             </TouchableOpacity>
                         </>
                     )}
                     
-                    {/* Si ya está confirmada, mostramos aviso de espera de pago */}
                     {booking.status === 'CONFIRMED' && (
                         <View style={{width: '100%', marginBottom: 10}}>
                             <View style={styles.infoBox}>
@@ -226,10 +229,16 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
                         </View>
                     )}
 
-                    {booking.status === 'COMPLETED' && (
+                    {/* 🔥 BOTÓN DE RESEÑA CON CANDADO */}
+                    {booking.status === 'COMPLETED' && !hasAlreadyReviewed && (
                           <TouchableOpacity style={styles.btnReview} onPress={handleReview}>
                               <Text style={styles.btnText}>⭐ Calificar Cliente</Text>
                           </TouchableOpacity>
+                    )}
+                    {booking.status === 'COMPLETED' && hasAlreadyReviewed && (
+                          <View style={styles.reviewedBox}>
+                              <Text style={{color: '#4CAF50', fontWeight: 'bold'}}>✅ Ya calificaste este servicio</Text>
+                          </View>
                     )}
                 </>
             )}
@@ -239,13 +248,20 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
                 <>
                     {(booking.status === 'PENDING' || booking.status === 'CONFIRMED') && (
                         <TouchableOpacity style={styles.btnReject} onPress={() => updateStatus('CANCELLED')} disabled={loading}>
-                             {loading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>Cancelar Reserva</Text>}
+                              {loading ? <ActivityIndicator color="#fff"/> : <Text style={styles.btnText}>Cancelar Reserva</Text>}
                         </TouchableOpacity>
                     )}
-                    {booking.status === 'COMPLETED' && (
+                    
+                    {/* 🔥 BOTÓN DE RESEÑA CON CANDADO */}
+                    {booking.status === 'COMPLETED' && !hasAlreadyReviewed && (
                           <TouchableOpacity style={styles.btnReview} onPress={handleReview}>
                               <Text style={styles.btnText}>⭐ Calificar Servicio</Text>
                           </TouchableOpacity>
+                    )}
+                    {booking.status === 'COMPLETED' && hasAlreadyReviewed && (
+                          <View style={styles.reviewedBox}>
+                              <Text style={{color: '#4CAF50', fontWeight: 'bold'}}>✅ Ya calificaste este servicio</Text>
+                          </View>
                     )}
                 </>
             )}
@@ -276,7 +292,8 @@ const styles = StyleSheet.create({
   btnComplete: { width: '100%', backgroundColor: COLORS.primary, padding: 15, borderRadius: 10, alignItems: 'center' },
   btnReview: { width: '100%', backgroundColor: '#FFC107', padding: 15, borderRadius: 10, alignItems: 'center' },
   btnText: { color: 'white', fontFamily: FONTS.bold, fontSize: 16 },
-  infoBox: { width: '100%', padding: 15, backgroundColor: '#f5f5f5', borderRadius: 10, marginBottom: 10 }
+  infoBox: { width: '100%', padding: 15, backgroundColor: '#f5f5f5', borderRadius: 10, marginBottom: 10 },
+  reviewedBox: { width: '100%', padding: 15, backgroundColor: '#E8F5E9', borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#C8E6C9' } // 🔥 Estilo para el candado
 });
 
 export default BookingDetailScreen;
