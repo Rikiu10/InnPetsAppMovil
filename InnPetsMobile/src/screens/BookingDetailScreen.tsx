@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Linking 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native'; // 🔥 NUEVO: Para auto-recargar
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api, { paymentService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -11,13 +11,36 @@ import * as WebBrowser from 'expo-web-browser';
 import PaymentSection from '../components/PaymentSection';
 
 const BookingDetailScreen = ({ route, navigation }: any) => {
-  const { booking: initialBooking } = route.params; 
+  // 🔥 MEJORA: Atrapamos la reserva O el ID si venimos de una notificación
+  const { booking: initialBooking, bookingId } = route.params || {}; 
   const { user } = useAuth();
 
-  const [booking, setBooking] = useState(initialBooking);
+  const [booking, setBooking] = useState(initialBooking || null);
+  const [loadingInitial, setLoadingInitial] = useState(!initialBooking); // 🔥 NUEVO: Carga inicial
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [paying, setPaying] = useState(false); 
+
+  // 🔥 NUEVO: Si entramos desde notificación solo con el ID, buscamos la reserva
+  useEffect(() => {
+      const fetchInitialBooking = async () => {
+          if (!initialBooking && bookingId) {
+              try {
+                  const res = await api.get(`/bookings/${bookingId}/`);
+                  setBooking(res.data);
+              } catch (error) {
+                  Alert.alert("Error", "No se pudo cargar la reserva");
+                  navigation.goBack();
+              } finally {
+                  setLoadingInitial(false);
+              }
+          } else if (!initialBooking && !bookingId) {
+              // Si no hay reserva ni ID, nos salimos para que no explote
+              navigation.goBack(); 
+          }
+      };
+      fetchInitialBooking();
+  }, [initialBooking, bookingId]);
 
   const checkIsProvider = () => {
       if (!user || !booking) return false;
@@ -54,6 +77,7 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
   }, []);
 
   const onRefresh = useCallback(async () => {
+    if (!booking?.id) return;
     setRefreshing(true);
     try {
         const res = await api.get(`/bookings/${booking.id}/`);
@@ -63,13 +87,12 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
     } finally {
         setRefreshing(false);
     }
-  }, [booking.id]);
+  }, [booking?.id]);
 
-  // 🔥 AUTO-REFRESCAR: Cuando vuelvas de la pantalla de reseñas, actualizará los datos sola
   useFocusEffect(
     useCallback(() => {
-      onRefresh();
-    }, [onRefresh])
+      if (booking?.id) onRefresh();
+    }, [onRefresh, booking?.id])
   );
 
   const updateStatus = async (newStatus: string) => {
@@ -130,8 +153,16 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
     return map[status] || status;
   };
 
-  // 🔥 BANDERA DE RESEÑA: Verificamos si el backend ya nos avisa que hay reseña
-  // (Cubrimos varios nombres comunes por si tu compañero usó uno distinto)
+  // 🔥 NUEVO: PANTALLA DE CARGA SI ESTAMOS BUSCANDO LA RESERVA
+  if (loadingInitial || !booking) {
+      return (
+          <SafeAreaView style={[styles.container, {justifyContent: 'center', alignItems: 'center'}]}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+              <Text style={{marginTop: 10, color: '#666'}}>Cargando reserva...</Text>
+          </SafeAreaView>
+      );
+  }
+
   const hasAlreadyReviewed = booking.has_review || booking.reviewed || booking.has_reviewed || false;
 
   return (
@@ -229,7 +260,6 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
                         </View>
                     )}
 
-                    {/* 🔥 BOTÓN DE RESEÑA CON CANDADO */}
                     {booking.status === 'COMPLETED' && !hasAlreadyReviewed && (
                           <TouchableOpacity style={styles.btnReview} onPress={handleReview}>
                               <Text style={styles.btnText}>⭐ Calificar Cliente</Text>
@@ -252,7 +282,6 @@ const BookingDetailScreen = ({ route, navigation }: any) => {
                         </TouchableOpacity>
                     )}
                     
-                    {/* 🔥 BOTÓN DE RESEÑA CON CANDADO */}
                     {booking.status === 'COMPLETED' && !hasAlreadyReviewed && (
                           <TouchableOpacity style={styles.btnReview} onPress={handleReview}>
                               <Text style={styles.btnText}>⭐ Calificar Servicio</Text>
@@ -293,7 +322,7 @@ const styles = StyleSheet.create({
   btnReview: { width: '100%', backgroundColor: '#FFC107', padding: 15, borderRadius: 10, alignItems: 'center' },
   btnText: { color: 'white', fontFamily: FONTS.bold, fontSize: 16 },
   infoBox: { width: '100%', padding: 15, backgroundColor: '#f5f5f5', borderRadius: 10, marginBottom: 10 },
-  reviewedBox: { width: '100%', padding: 15, backgroundColor: '#E8F5E9', borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#C8E6C9' } // 🔥 Estilo para el candado
+  reviewedBox: { width: '100%', padding: 15, backgroundColor: '#E8F5E9', borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#C8E6C9' } 
 });
 
 export default BookingDetailScreen;

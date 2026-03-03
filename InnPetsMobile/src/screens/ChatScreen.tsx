@@ -28,13 +28,13 @@ const ChatScreen = ({ route, navigation }: any) => {
   const [customFileName, setCustomFileName] = useState(''); 
   const [showAttachMenu, setShowAttachMenu] = useState(false);
 
-  // 🔥 ESTADOS DEL SISTEMA DE RESEÑAS
+
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [rating, setRating] = useState(0);
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
   
-  // 🔥 NUEVO ESTADO: BARRERA PARA SABER SI YA CALIFICÓ
+
   const [hasReviewed, setHasReviewed] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
@@ -53,7 +53,6 @@ const ChatScreen = ({ route, navigation }: any) => {
               if (response.data.status === 'CLOSED' || response.data.is_active === false) {
                   setIsClosed(true);
               }
-              // Si el backend envía que ya tiene review, la ocultamos de entrada
               if (response.data.has_review) {
                   setHasReviewed(true);
               }
@@ -107,7 +106,6 @@ const ChatScreen = ({ route, navigation }: any) => {
               setIsClosed(true);
               setLoading(false);
               
-              // Solo mostramos el modal si NO ha calificado
               if (!hasReviewed) {
                   Alert.alert("¡Ticket Resuelto!", "Por favor califica nuestra atención.", [
                       { text: "Calificar", onPress: () => setShowReviewModal(true) },
@@ -138,13 +136,11 @@ const ChatScreen = ({ route, navigation }: any) => {
           });
           Alert.alert("¡Gracias!", "Tu calificación ha sido enviada exitosamente.");
           setShowReviewModal(false);
-          // 🔥 DESAPARECEMOS EL BOTÓN AL INSTANTE
           setHasReviewed(true);
       } catch (error: any) {
           const detail = error.response?.data?.detail || "Ya enviaste una reseña para este ticket o ocurrió un error.";
           Alert.alert("Aviso", detail);
           setShowReviewModal(false);
-          // Por si falló porque ya existía, también lo ocultamos
           if (detail.includes("Ya enviaste")) setHasReviewed(true);
       } finally {
           setSubmittingReview(false);
@@ -321,7 +317,6 @@ const ChatScreen = ({ route, navigation }: any) => {
                     
                     {isSupportRoom && (
                         <View style={{flexDirection: 'row', gap: 10, width: '100%', justifyContent: 'center'}}>
-                            {/* 🔥 LA BARRERA VISUAL: Si ya calificó, ocultamos el botón naranja */}
                             {!hasReviewed && (
                                 <TouchableOpacity onPress={() => setShowReviewModal(true)} style={[styles.rateBtn, {backgroundColor: '#FF9800'}]}>
                                     <Text style={styles.rateBtnText}>⭐ Calificar</Text>
@@ -350,7 +345,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                     />
                     
                     <TouchableOpacity 
-                        style={[styles.sendBtn, { backgroundColor: (text.trim() || attachment) ? COLORS.primary : '#E0E0E0' }]} 
+                        style={[styles.sendBtn, { backgroundColor: (text.trim() || attachment) ? COLORS.primary : '#ccc' }]} 
                         onPress={handleSend} disabled={sending || (!text.trim() && !attachment)}
                     >
                         {sending ? <ActivityIndicator color="white" size="small"/> : <Ionicons name="send" size={18} color="white" style={{marginLeft: 2}} />}
@@ -429,55 +424,76 @@ const ChatScreen = ({ route, navigation }: any) => {
   );
 };
 
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.white },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0', backgroundColor: COLORS.white },
+  container: { flex: 1, backgroundColor: '#E5DDD5' }, 
+  header: { 
+      flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15, paddingVertical: 12, 
+      backgroundColor: COLORS.white, elevation: 4, shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.1, shadowRadius: 3 
+  },
   backBtn: { padding: 5, marginRight: 10 },
   headerTitle: { fontSize: 18, fontFamily: FONTS.bold, color: COLORS.textDark },
   headerSubtitle: { fontSize: 12, fontFamily: FONTS.regular, color: COLORS.primary },
   
-  closeTicketBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFEBEE', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 15, borderWidth: 1, borderColor: '#FFCDD2' },
+  closeTicketBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFEBEE', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 15 },
   closeTicketText: { color: '#D32F2F', fontSize: 12, fontWeight: 'bold' },
 
-  msgBubble: { padding: 12, borderRadius: 18, maxWidth: '100%' },
-  msgMe: { backgroundColor: COLORS.primary, borderTopRightRadius: 4, borderBottomRightRadius: 0 },
-  msgOther: { backgroundColor: '#f5f5f5', borderTopLeftRadius: 4, borderBottomLeftRadius: 0 },
-  msgText: { fontSize: 15, fontFamily: FONTS.regular, lineHeight: 22 },
-  msgTime: { fontSize: 10, color: '#999', marginTop: 4, marginHorizontal: 2 },
+  // 🔥 Sombras manuales para que no dependa de SHADOWS.small
+  msgBubble: { 
+      padding: 12, borderRadius: 18, maxWidth: '100%', 
+      elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 1 
+  },
+  msgMe: { backgroundColor: '#DCF8C6', borderTopRightRadius: 18, borderBottomRightRadius: 4, borderTopLeftRadius: 18, borderBottomLeftRadius: 18 },
+  msgOther: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 18, borderBottomLeftRadius: 4, borderTopRightRadius: 18, borderBottomRightRadius: 18 },
+  msgText: { fontSize: 15, fontFamily: FONTS.regular, color: '#303030', lineHeight: 20 },
+  msgTime: { fontSize: 10, color: '#888', marginTop: 4, marginHorizontal: 2 },
   
-  fileBox: { flexDirection:'row', alignItems:'center', backgroundColor:'rgba(0,0,0,0.1)', padding:10, borderRadius:8 },
-  fileText: { marginLeft:5, fontSize:12, fontWeight:'bold', textDecorationLine: 'underline' },
+  fileBox: { flexDirection:'row', alignItems:'center', backgroundColor:'rgba(0,0,0,0.05)', padding:10, borderRadius:8 },
+  fileText: { marginLeft:5, fontSize:12, fontWeight: 'bold', color: COLORS.primary },
 
-  inputWrapper: { padding: 10, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F8F8', borderRadius: 25, paddingHorizontal: 5, paddingVertical: 5 },
+  inputWrapper: { padding: 10, backgroundColor: 'transparent' },
+  inputContainer: { 
+      flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', 
+      borderRadius: 25, paddingHorizontal: 10, paddingVertical: 5, 
+      elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 
+  },
   
-  closedTicketBanner: { backgroundColor: '#f9f9f9', padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  closedTicketBanner: { 
+      backgroundColor: '#FFFFFF', padding: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginHorizontal: 10,
+      elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2
+  },
   closedTicketTextBanner: { color: '#666', fontFamily: FONTS.bold, marginBottom: 10 },
-  rateBtn: { flex: 1, paddingHorizontal: 10, paddingVertical: 10, borderRadius: 20, alignItems: 'center' },
-  rateBtnText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
+  rateBtn: { flex: 1, paddingHorizontal: 10, paddingVertical: 12, borderRadius: 20, alignItems: 'center' },
+  rateBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
 
-  attachBtn: { padding: 10 },
+  attachBtn: { padding: 8 },
   input: { flex: 1, paddingHorizontal: 10, paddingVertical: 10, maxHeight: 100, fontSize: 15, color: COLORS.textDark, fontFamily: FONTS.regular },
-  sendBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 5 },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
 
-  previewContainer: { paddingHorizontal: 20, paddingBottom: 10, backgroundColor: '#fff' },
-  previewBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0F0F0', padding: 10, borderRadius: 10, borderWidth:1, borderColor:'#ddd' },
+  previewContainer: { paddingHorizontal: 20, paddingBottom: 10 },
+  previewBox: { 
+      flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', padding: 10, borderRadius: 15,
+      elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 
+  },
   fileNameInput: { flex: 1, marginHorizontal: 10, color: '#333', borderBottomWidth: 1, borderBottomColor: '#ccc', paddingVertical: 2 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 25 },
-  modalTitle: { fontSize: 18, fontFamily: FONTS.bold, marginBottom: 20, textAlign:'center' },
-  modalOption: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  iconBox: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  modalText: { fontSize: 16, color: '#333' },
+  modalContent: { backgroundColor: '#F8F9FA', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 25, paddingBottom: 40 },
+  modalTitle: { fontSize: 18, fontFamily: FONTS.bold, marginBottom: 20, textAlign:'center', color: '#333' },
+  modalOption: { 
+      flexDirection: 'row', alignItems: 'center', marginBottom: 20, backgroundColor: '#FFF', padding: 15, borderRadius: 15,
+      elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 
+  },
+  iconBox: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  modalText: { fontSize: 16, color: '#333', fontWeight: '600' },
 
   modalOverlayCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
   reviewModalContent: { backgroundColor: 'white', borderRadius: 20, padding: 25, alignItems: 'center' },
   reviewTitle: { fontSize: 20, fontFamily: FONTS.bold, color: '#333', marginBottom: 10 },
   reviewSubtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 20 },
   starsContainer: { flexDirection: 'row', justifyContent: 'center', marginBottom: 20 },
-  reviewInput: { width: '100%', borderWidth: 1, borderColor: '#eee', borderRadius: 10, padding: 15, height: 100, textAlignVertical: 'top', backgroundColor: '#f9f9f9' },
-  modalBtn: { flex: 1, padding: 15, borderRadius: 10, alignItems: 'center' }
+  reviewInput: { width: '100%', borderWidth: 1, borderColor: '#eee', borderRadius: 15, padding: 15, height: 100, textAlignVertical: 'top', backgroundColor: '#f9f9f9' },
+  modalBtn: { flex: 1, padding: 15, borderRadius: 15, alignItems: 'center' }
 });
 
 export default ChatScreen;
