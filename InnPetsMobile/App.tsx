@@ -36,6 +36,7 @@ import CreateMarketplaceItemScreen from './src/screens/CreateMarketplaceItemScre
 import VerifyOTPScreen from './src/screens/VerifyOTPScreen';
 import ResubmitIDScreen from './src/screens/ResubmitIDScreen'; 
 import MarketplaceItemDetailScreen from './src/screens/MarketplaceItemDetailScreen';
+import AdoptionsScreen from './src/screens/AdoptionsScreen';
 import { RootStackParamList } from './src/types';
 
 SplashScreen.preventAutoHideAsync();
@@ -140,6 +141,7 @@ const AppNavigator = () => {
         <Stack.Screen name="CreateTicket" component={CreateTicketScreen} />
         <Stack.Screen name="CreateMarketplaceItem" component={CreateMarketplaceItemScreen} />
         <Stack.Screen name="MarketplaceItemDetail" component={MarketplaceItemDetailScreen} />
+        <Stack.Screen name="Adoptions" component={AdoptionsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

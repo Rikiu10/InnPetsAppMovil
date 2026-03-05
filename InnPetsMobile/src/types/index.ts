@@ -97,4 +97,5 @@ export type RootStackParamList = {
   MarketplaceItemDetail: { item: MarketplaceItem };
   VerifyOTP: { email: string };
   ResubmitID: { email: string; motivo: string }; // 🔥 NUEVO
+  Adoptions: undefined;
 };

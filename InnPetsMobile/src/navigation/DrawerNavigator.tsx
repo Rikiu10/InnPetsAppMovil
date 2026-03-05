@@ -1,7 +1,7 @@
 import React from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { COLORS, FONTS } from '../constants/theme';
-import { Ionicons } from '@expo/vector-icons'; // 🔥 Cambiamos Emojis por Íconos profesionales
+import { Ionicons } from '@expo/vector-icons'; 
 
 // Importa tus pantallas
 import MainNavigator from './MainNavigator'; 
@@ -9,6 +9,9 @@ import ProfileScreen from '../screens/ProfileScreen';
 import CustomDrawer from './CustomDrawer';
 import ReservasScreen from '../screens/ReservasScreen';
 import ChatListScreen from '../screens/ChatListScreen';
+
+// 🔥 Importamos la pantalla de Adopciones
+import AdoptionsScreen from '../screens/AdoptionsScreen';
 
 const Drawer = createDrawerNavigator();
 
@@ -26,10 +29,10 @@ const DrawerNavigator = () => {
         drawerLabelStyle: { 
             fontFamily: FONTS.semiBold, 
             fontSize: 15,
-            marginLeft: -10, // Acerca el texto al ícono para que no quede tanto espacio en blanco
+            marginLeft: -10, 
         },
         drawerItemStyle: {
-            borderRadius: 12, // 🔥 Bordes redondeados en la selección
+            borderRadius: 12, 
             paddingHorizontal: 8,
             marginVertical: 4,
         }
@@ -58,23 +61,32 @@ const DrawerNavigator = () => {
         }}
       />
 
+      {/* 🔥 NUEVA OPCIÓN: ADOPCIONES */}
+      <Drawer.Screen 
+        name="AdoptionsDrawer" 
+        component={AdoptionsScreen} 
+        options={{
+          title: 'Adopciones',
+          drawerIcon: ({color}) => <Ionicons name="heart-outline" size={22} color={color} />
+        }}
+      />
+
       <Drawer.Screen 
         name="ChatList" 
         component={ChatListScreen} 
-        initialParams={{ mode: 'normal' }} // 👈 IMPORTANTE
+        initialParams={{ mode: 'normal' }} 
         options={{
           title: 'Mis Mensajes',
           drawerIcon: ({color}) => <Ionicons name="chatbubbles-outline" size={22} color={color} />
         }}
       />
 
-      {/* 👇 RUTA OCULTA DEL MENU (Se accede desde el CustomDrawer) */}
       <Drawer.Screen 
         name="SupportTickets" 
         component={ChatListScreen} 
-        initialParams={{ mode: 'support' }} // 👈 IMPORTANTE
+        initialParams={{ mode: 'support' }} 
         options={{
-          drawerItemStyle: { display: 'none' } // Oculta el botón duplicado estándar
+          drawerItemStyle: { display: 'none' } 
         }}
       />
 

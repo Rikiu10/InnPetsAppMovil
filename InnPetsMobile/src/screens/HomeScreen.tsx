@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons'; // 🔥 Agregamos Ionicons para los íconos
+import { Ionicons } from '@expo/vector-icons'; 
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api, { notificationService } from '../services/api';
 
@@ -12,7 +12,7 @@ import { CompositeScreenProps } from '@react-navigation/native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList, MainTabParamList } from '../types';
-import { useAuth } from '../context/AuthContext'; // 🔥 Para sacar el nombre del usuario
+import { useAuth } from '../context/AuthContext'; 
 
 type HomeScreenProps = CompositeScreenProps<
   BottomTabScreenProps<MainTabParamList, 'Explorar'>,
@@ -20,7 +20,7 @@ type HomeScreenProps = CompositeScreenProps<
 >;
 
 const HomeScreen = ({ navigation }: HomeScreenProps) => {
-  const { user } = useAuth(); // Sacamos el usuario logueado
+  const { user } = useAuth(); 
   const [services, setServices] = useState<any[]>([]); 
   const [filteredServices, setFilteredServices] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -134,11 +134,11 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
     <TouchableOpacity 
         style={styles.serviceCard}
         activeOpacity={0.9}
+        // @ts-ignore
         onPress={() => navigation.navigate('ServiceDetail', { service: item })}
     >
         <Image source={{ uri: getImage(item) }} style={styles.cardImage} resizeMode="cover"/>
         
-        {/* Etiqueta de Categoría Flotante */}
         <View style={styles.cardBadge}>
             <Text style={styles.cardBadgeText}>{getCategoryLabel(item)}</Text>
         </View>
@@ -148,7 +148,6 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
                 <View style={{flex: 1, paddingRight: 10}}>
                     <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
                     
-                    {/* Información del Proveedor y Ubicación */}
                     <View style={styles.providerRow}>
                         <Ionicons name="person-circle-outline" size={16} color={COLORS.textLight} />
                         <Text style={styles.providerName} numberOfLines={1}>{item.provider_name || 'Proveedor'}</Text>
@@ -162,7 +161,6 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
                     )}
                 </View>
                 
-                {/* Rating */}
                 <View style={styles.ratingBadge}>
                     <Ionicons name="star" size={12} color="#FFB300" />
                     <Text style={styles.ratingText}>{item.average_rating ? Number(item.average_rating).toFixed(1) : 'Nuevo'}</Text>
@@ -191,6 +189,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
             <View style={styles.actions}>
                 <TouchableOpacity 
                     style={styles.iconBtn}
+                    // @ts-ignore
                     onPress={() => navigation.navigate('NotificationsScreen')}
                 >
                     <Ionicons name="notifications-outline" size={24} color={COLORS.textDark} />
@@ -205,6 +204,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
 
                 <TouchableOpacity 
                     style={[styles.iconBtn, { backgroundColor: COLORS.primaryLight }]}
+                    // @ts-ignore
                     onPress={() => navigation.navigate('Perfil')}
                 >
                     <Ionicons name="person-outline" size={22} color={COLORS.primary} />
@@ -227,7 +227,7 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
         </View>
 
         {/* CATEGORÍAS */}
-        <View style={{ paddingLeft: 20, marginBottom: 25 }}>
+        <View style={{ paddingLeft: 20, marginBottom: 20 }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 {categories.map((cat, index) => {
                     const isActive = activeCategory === cat.name;
@@ -246,9 +246,28 @@ const HomeScreen = ({ navigation }: HomeScreenProps) => {
             </ScrollView>
         </View>
 
-        {/* TÍTULO DE SECCIÓN */}
+        {/* 🔥 BANNER DESTACADO DE ADOPCIONES */}
+        <View style={styles.padding}>
+            <TouchableOpacity 
+                style={styles.adoptionsBanner} 
+                activeOpacity={0.9}
+                // @ts-ignore
+                onPress={() => navigation.navigate('Adoptions')}
+            >
+                <View style={styles.adoptionsBannerContent}>
+                    <Text style={styles.adoptionsBannerTitle}>Adopta un Amigo 🐾</Text>
+                    <Text style={styles.adoptionsBannerDesc}>Conoce la Red de Rescate, Fundaciones y Casas de Acogida.</Text>
+                </View>
+                <View style={styles.adoptionsBannerIcon}>
+                    <Ionicons name="heart" size={32} color="#FFF" />
+                </View>
+            </TouchableOpacity>
+        </View>
+
+        {/* TÍTULO DE SECCIÓN SERVICIOS */}
         <View style={[styles.padding, styles.sectionHeader]}>
-            <Text style={styles.sectionTitle}>Servicios Destacados 🔥</Text>
+            <Text style={styles.sectionTitle}>Servicios Destacados</Text>
+            {/* @ts-ignore */}
             <TouchableOpacity onPress={() => navigation.navigate('Servicios')}>
                 <Text style={styles.sectionLink}>Ver todos</Text>
             </TouchableOpacity>
@@ -287,7 +306,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
   padding: { paddingHorizontal: 20, marginBottom: 20 },
   
-  // Header
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingTop: Platform.OS === 'android' ? 20 : 10, paddingBottom: 20, 
@@ -297,28 +315,30 @@ const styles = StyleSheet.create({
   greetingText: { fontFamily: FONTS.bold, fontSize: 24, color: COLORS.textDark, marginBottom: 4 },
   subGreetingText: { fontFamily: FONTS.regular, fontSize: 14, color: COLORS.textLight },
   
-  // Acciones (Iconos)
   actions: { flexDirection: 'row', gap: 12 },
   iconBtn: { width: 45, height: 45, borderRadius: 25, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', ...SHADOWS.card },
   notificationDot: { position: 'absolute', top: -2, right: -2, backgroundColor: COLORS.danger, borderRadius: 10, minWidth: 20, height: 20, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: 'white', paddingHorizontal: 4 },
   notificationText: { color: 'white', fontSize: 10, fontFamily: FONTS.bold },
   
-  // Buscador
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white, paddingHorizontal: 15, paddingVertical: Platform.OS === 'ios' ? 15 : 10, borderRadius: 16, ...SHADOWS.card },
   searchInput: { flex: 1, fontFamily: FONTS.regular, fontSize: 16, color: COLORS.textDark },
   
-  // Categorías
   categoryChip: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, backgroundColor: COLORS.white, marginRight: 12, ...SHADOWS.card, borderWidth: 1, borderColor: 'transparent' },
   categoryChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   categoryText: { fontFamily: FONTS.semiBold, color: COLORS.textLight, fontSize: 14 },
   categoryTextActive: { color: COLORS.white, fontFamily: FONTS.bold },
   
-  // Secciones
+  // 🔥 ESTILOS DEL BANNER DE ADOPCIONES
+  adoptionsBanner: { flexDirection: 'row', backgroundColor: '#FF9800', borderRadius: 20, padding: 20, alignItems: 'center', ...SHADOWS.card },
+  adoptionsBannerContent: { flex: 1, paddingRight: 10 },
+  adoptionsBannerTitle: { fontFamily: FONTS.bold, fontSize: 18, color: '#FFF', marginBottom: 5 },
+  adoptionsBannerDesc: { fontFamily: FONTS.regular, fontSize: 13, color: '#FFF', opacity: 0.9 },
+  adoptionsBannerIcon: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   sectionTitle: { fontFamily: FONTS.bold, fontSize: 20, color: COLORS.textDark },
   sectionLink: { color: COLORS.primary, fontFamily: FONTS.bold, fontSize: 14 },
   
-  // Tarjetas de Servicio
   serviceCard: { backgroundColor: COLORS.white, borderRadius: 20, marginBottom: 20, marginHorizontal: 20, ...SHADOWS.card, overflow: 'hidden' },
   cardImage: { width: '100%', height: 180, backgroundColor: '#EAEAEA' },
   cardBadge: { position: 'absolute', top: 15, left: 15, backgroundColor: 'rgba(255,255,255,0.95)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
@@ -341,7 +361,6 @@ const styles = StyleSheet.create({
   price: { fontFamily: FONTS.bold, fontSize: 22, color: COLORS.primary },
   priceUnit: { fontFamily: FONTS.regular, color: COLORS.textLight, fontSize: 14 },
 
-  // Estados de Carga / Vacío
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 12, color: COLORS.textLight, fontFamily: FONTS.semiBold },
   emptyState: { alignItems: 'center', marginTop: 50 },
