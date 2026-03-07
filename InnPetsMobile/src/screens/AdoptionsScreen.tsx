@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, SHADOWS } from '../constants/theme';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useIsFocused } from '@react-navigation/native';
 
 const AdoptionsScreen = ({ navigation }: any) => {
   const { user, refreshUser } = useAuth(); 
@@ -15,7 +16,8 @@ const AdoptionsScreen = ({ navigation }: any) => {
   // Estados de UI
   const [activeTab, setActiveTab] = useState('PETS'); 
   const [loading, setLoading] = useState(false);
-  const [creatingChat, setCreatingChat] = useState(false); // Para el spinner del boton de chat
+  const [creatingChat, setCreatingChat] = useState(false); 
+  const isFocused = useIsFocused();
   
   // Estados de Datos
   const [pets, setPets] = useState([]);
@@ -29,10 +31,8 @@ const AdoptionsScreen = ({ navigation }: any) => {
   // 1. VERIFICAR ROL AL ENTRAR
   useEffect(() => {
     const checkOnboarding = async () => {
-      // Si el usuario ya es fundación o casa de acogida, no mostramos el modal
       if (user?.foundation || user?.is_foster_home) return;
 
-      // Si no es ninguno, revisamos si ya lo había rechazado antes
       const hasSeen = await AsyncStorage.getItem('@adoption_onboarding_done');
       if (!hasSeen) {
         setShowRoleModal(true);
@@ -51,7 +51,7 @@ const AdoptionsScreen = ({ navigation }: any) => {
     setLoading(true);
     try {
       if (activeTab === 'PETS') {
-        const res = await api.get('/adoptions/'); // Ajusta la ruta según tu urls.py
+        const res = await api.get('/adoptions/'); 
         setPets(res.data.results || res.data);
       } 
       else if (activeTab === 'FOUNDATIONS') {
@@ -59,7 +59,6 @@ const AdoptionsScreen = ({ navigation }: any) => {
         setFoundations(res.data.results || res.data);
       } 
       else if (activeTab === 'FOSTERS' && user?.foundation) {
-        // 🔥 EL CANDADO DEL PROFESOR EN ACCIÓN
         const res = await api.get('/users/rescue_network/?foster_only=true');
         setFosters(res.data);
       }
@@ -70,20 +69,33 @@ const AdoptionsScreen = ({ navigation }: any) => {
     }
   };
 
-  // 3. ENVIAR DECISIÓN DEL USUARIO A DJANGO
+  // 3. LÓGICA DE ROLES (ACTUALIZADA CON REGLAS DEL PROFESOR)
   const handleSetRole = async (roleType: string) => {
+    // 🔥 REGLA: Fundaciones requieren aprobación del Admin
+    if (roleType === 'FOUNDATION') {
+        Alert.alert(
+            "Aprobación Requerida 🏢",
+            "Para registrar tu fundación y acceder al directorio de casas de acogida, un administrador debe verificar tus datos.\n\n¿Deseas abrir un ticket de soporte para iniciar el proceso?",
+            [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Contactar Soporte", onPress: () => {
+                    setShowRoleModal(false);
+                    navigation.navigate('CreateTicket');
+                }}
+            ]
+        );
+        return; // Detenemos la ejecución aquí, no se guarda automáticamente.
+    }
+
     setSettingRole(true);
     try {
       await api.post('/users/set_adoption_role/', { role: roleType });
-      
-      // Guardamos en el celular que ya vimos el mensaje
       await AsyncStorage.setItem('@adoption_onboarding_done', 'true');
       
-      // Recargamos el usuario global para que la app sepa sus nuevos poderes
       if (refreshUser) await refreshUser(); 
       
       setShowRoleModal(false);
-      Alert.alert("¡Excelente!", "Tu perfil de rescate ha sido configurado.");
+      Alert.alert("¡Excelente!", "Tu perfil ha sido configurado. Recuerda que puedes modificarlo más adelante en los ajustes.");
       
     } catch (error) {
       Alert.alert("Error", "No se pudo guardar tu preferencia.");
@@ -92,14 +104,11 @@ const AdoptionsScreen = ({ navigation }: any) => {
     }
   };
 
-  // 4. CREAR CHAT DE ADOPCIÓN (NUEVA FUNCIÓN) 💬
+  // 4. CREAR CHAT DE ADOPCIÓN
   const handleContactAdoption = async (postId: number, animalName: string) => {
       setCreatingChat(true);
       try {
-          // Llamamos al endpoint que acabamos de crear en el backend
           const res = await api.post('/chat/create_adoption_chat/', { post_id: postId });
-          
-          // Si todo sale bien, lo mandamos a la pantalla de chat con el ID de la sala
           navigation.navigate('ChatDetail', { 
               roomId: res.data.room_id, 
               partnerName: `Adopción: ${animalName}`,
@@ -113,18 +122,16 @@ const AdoptionsScreen = ({ navigation }: any) => {
       }
   };
 
-
   // --- RENDERIZADO DE LISTAS ---
   const renderPet = ({ item }: any) => {
       const animalName = item.temp_name || item.pet?.name || 'Perrito Rescatado';
-      const isMyPost = item.publisher === user?.id; // Para no mostrar el boton en tus propias publicaciones
+      const isMyPost = item.publisher === user?.id; 
 
       return (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>{animalName}</Text>
           <Text style={styles.cardSubtitle}>Estado: {item.status}</Text>
           
-          {/* Botón de Contactar (Oculto si es tu propia publicación) */}
           {!isMyPost && (
               <TouchableOpacity 
                   style={styles.contactBtn} 
@@ -180,7 +187,7 @@ const AdoptionsScreen = ({ navigation }: any) => {
           <Text style={[styles.tabText, activeTab === 'FOUNDATIONS' && styles.activeTabText]}>Fundaciones</Text>
         </TouchableOpacity>
 
-        {/* 🔥 PESTAÑA SECRETA: SOLO VISIBLE SI EL USUARIO ES FUNDACIÓN */}
+        {/* PESTAÑA SECRETA */}
         {user?.foundation && (
             <TouchableOpacity style={[styles.tab, activeTab === 'FOSTERS' && styles.activeTab]} onPress={() => setActiveTab('FOSTERS')}>
               <Text style={[styles.tabText, activeTab === 'FOSTERS' && styles.activeTabText]}>Acogidas 🔒</Text>
@@ -201,12 +208,22 @@ const AdoptionsScreen = ({ navigation }: any) => {
         />
       )}
 
-      {/* ========================================================= */}
-      {/* 🔥 MODAL DE ONBOARDING (EL FILTRO DE ENTRADA) */}
-      {/* ========================================================= */}
-      <Modal visible={showRoleModal} animationType="slide" transparent>
+      {/* MODAL DE ONBOARDING */}
+      <Modal visible={showRoleModal && isFocused} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            
+            {/* 🔥 BOTÓN PARA CERRAR Y REGRESAR */}
+            <TouchableOpacity 
+                style={styles.closeModalBtn} 
+                onPress={() => {
+                    setShowRoleModal(false);
+                    navigation.goBack();
+                }}
+            >
+                <Ionicons name="close-circle" size={30} color="#ccc" />
+            </TouchableOpacity>
+
             <Text style={styles.modalTitle}>¡Bienvenido a la Red de Rescate! 🐾</Text>
             <Text style={styles.modalSubtitle}>Para ofrecerte la mejor experiencia, cuéntanos cómo te gustaría participar hoy:</Text>
 
@@ -214,7 +231,7 @@ const AdoptionsScreen = ({ navigation }: any) => {
               <View style={[styles.iconBox, {backgroundColor: '#E3F2FD'}]}><Ionicons name="business" size={28} color="#2196F3" /></View>
               <View style={{flex: 1}}>
                 <Text style={styles.roleBtnTitle}>Soy una Fundación</Text>
-                <Text style={styles.roleBtnDesc}>Quiero publicar mascotas y buscar casas de acogida.</Text>
+                <Text style={styles.roleBtnDesc}>Requiere verificación del administrador.</Text>
               </View>
             </TouchableOpacity>
 
@@ -260,13 +277,15 @@ const styles = StyleSheet.create({
   cardSubtitle: { fontSize: 13, color: '#666', marginTop: 5 },
   emptyText: { textAlign: 'center', color: '#999', marginTop: 50, fontSize: 15 },
 
-  // Estilos del Botón de Contacto
   contactBtn: { marginTop: 15, backgroundColor: '#FF9800', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
   contactBtnText: { color: '#FFF', fontFamily: FONTS.bold, fontSize: 14 },
 
-  // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 20, ...SHADOWS.card },
+  modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 25, paddingTop: 40, ...SHADOWS.card },
+  
+  // 🔥 ESTILO DEL BOTÓN DE CERRAR
+  closeModalBtn: { position: 'absolute', top: 12, right: 12, zIndex: 10 },
+  
   modalTitle: { fontSize: 20, fontFamily: FONTS.bold, textAlign: 'center', color: COLORS.textDark, marginBottom: 10 },
   modalSubtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 25 },
   
