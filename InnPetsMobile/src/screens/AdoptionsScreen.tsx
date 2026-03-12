@@ -71,7 +71,7 @@ const AdoptionsScreen = ({ navigation }: any) => {
 
   // 3. LÓGICA DE ROLES (ACTUALIZADA CON REGLAS DEL PROFESOR)
   const handleSetRole = async (roleType: string) => {
-    // 🔥 REGLA: Fundaciones requieren aprobación del Admin
+    // REGLA: Fundaciones requieren aprobación del Admin
     if (roleType === 'FOUNDATION') {
         Alert.alert(
             "Aprobación Requerida 🏢",
@@ -173,8 +173,13 @@ const AdoptionsScreen = ({ navigation }: any) => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={{padding: 5}}>
           <Ionicons name="chevron-back" size={28} color={COLORS.primary} />
         </TouchableOpacity>
+        
         <Text style={styles.headerTitle}>Adopciones y Rescate</Text>
-        <View style={{width: 28}} />
+        
+        {/* BOTÓN PARA ABRIR EL MODAL DE ROLES MANUALMENTE */}
+        <TouchableOpacity onPress={() => setShowRoleModal(true)} style={{padding: 5}}>
+          <Ionicons name="settings-outline" size={24} color={COLORS.primary} />
+        </TouchableOpacity>
       </View>
 
       {/* PESTAÑAS (TABS) */}
@@ -213,12 +218,11 @@ const AdoptionsScreen = ({ navigation }: any) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             
-            {/* 🔥 BOTÓN PARA CERRAR Y REGRESAR */}
+            {/* BOTÓN PARA CERRAR EL MODAL */}
             <TouchableOpacity 
                 style={styles.closeModalBtn} 
                 onPress={() => {
                     setShowRoleModal(false);
-                    navigation.goBack();
                 }}
             >
                 <Ionicons name="close-circle" size={30} color="#ccc" />
@@ -283,7 +287,6 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 25, paddingTop: 40, ...SHADOWS.card },
   
-  // 🔥 ESTILO DEL BOTÓN DE CERRAR
   closeModalBtn: { position: 'absolute', top: 12, right: 12, zIndex: 10 },
   
   modalTitle: { fontSize: 20, fontFamily: FONTS.bold, textAlign: 'center', color: COLORS.textDark, marginBottom: 10 },

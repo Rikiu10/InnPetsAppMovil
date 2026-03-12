@@ -14,10 +14,10 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
   const [loading, setLoading] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
   
-  // 🔥 ESTADOS MEJORADOS PARA UBICACIÓN (Filtro Local)
+  // ESTADOS MEJORADOS PARA UBICACIÓN (Filtro Local)
   const [regions, setRegions] = useState<any[]>([]);
-  const [allCommunes, setAllCommunes] = useState<any[]>([]); // Aquí guardamos TODAS las comunas
-  const [filteredCommunes, setFilteredCommunes] = useState<any[]>([]); // Aquí solo las que mostraremos
+  const [allCommunes, setAllCommunes] = useState<any[]>([]); 
+  const [filteredCommunes, setFilteredCommunes] = useState<any[]>([]); 
   
   const [showRegionModal, setShowRegionModal] = useState(false);
   const [showCommuneModal, setShowCommuneModal] = useState(false);
@@ -40,10 +40,9 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
   const priceNum = parseFloat(form.price);
   const isValidPrice = !isNaN(priceNum) && priceNum > 0;
   const comisionCalculada = isValidPrice ? Math.max(priceNum * (tasaComision / 100), tarifaMinima) : 0;
-  const dineroARecibir = isValidPrice ? Math.max(0, priceNum - comisionCalculada) : 0;
 
   useEffect(() => {
-      // 🔥 1. Descargamos TODAS las regiones y comunas de inmediato
+      // 1. Descargamos TODAS las regiones y comunas de inmediato
       api.get('/regions/').then(res => setRegions(res.data)).catch(err => console.error("Error regiones:", err));
       api.get('/communes/').then(res => setAllCommunes(res.data)).catch(err => console.error("Error comunas:", err));
       
@@ -60,7 +59,7 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
       setForm({ ...form, selectedRegion: region, selectedCommune: null });
       setShowRegionModal(false);
       
-      // 🔥 FILTRO LOCAL INSTANTÁNEO (Esta es la magia para que no quede en blanco)
+      // FILTRO LOCAL INSTANTÁNEO 
       const filtered = allCommunes.filter(c => 
           c.region === region.id || 
           c.region_id === region.id || 
@@ -248,7 +247,6 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
                             onPress={() => form.selectedRegion ? setShowCommuneModal(true) : Alert.alert("Primero selecciona una región")}
                             disabled={!form.selectedRegion}
                         >
-                            {/* 🔥 MOSTRAR COMUNAS */}
                             <Text style={{color: form.selectedCommune ? COLORS.textDark : '#999', flex: 1}} numberOfLines={1}>
                                 {form.selectedCommune?.name || "Comuna"}
                             </Text>
@@ -287,6 +285,7 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
                 </View>
                 {errors.price && <Text style={styles.errorText}>{errors.price}</Text>}
 
+                {/* 🔥 RESUMEN CORREGIDO SEGÚN EL PROFESOR */}
                 {isValidPrice && (
                     <View style={styles.feeSummaryBox}>
                         <View style={styles.feeRow}>
@@ -295,13 +294,16 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
                         </View>
                         <View style={styles.feeRow}>
                             <Text style={styles.feeLabel}>
-                                Tarifa por publicar ({comisionCalculada === tarifaMinima ? 'Mínimo' : `${tasaComision}%`})
+                                Tarifa a publicar ({comisionCalculada === tarifaMinima ? 'Mínimo' : `${tasaComision}%`})
                             </Text>
-                            <Text style={styles.feeValueRed}>- ${comisionCalculada.toLocaleString('es-CL')}</Text>
+                            <Text style={styles.feeValue}>${comisionCalculada.toLocaleString('es-CL')}</Text>
                         </View>
-                        <View style={[styles.feeRow, { borderTopWidth: 1, borderTopColor: '#E0E0E0', marginTop: 8, paddingTop: 8 }]}>
-                            <Text style={styles.feeTotalLabel}>Recibirás aprox.</Text>
-                            <Text style={styles.feeTotalValue}>${dineroARecibir.toLocaleString('es-CL')}</Text>
+                        
+                        <View style={styles.infoAlertBox}>
+                            <Ionicons name="information-circle-outline" size={20} color={COLORS.primary} style={{marginRight: 6}} />
+                            <Text style={styles.infoAlertText}>
+                                Este es el monto que deberás pagar para activar tu anuncio una vez sea aprobado por nuestro equipo.
+                            </Text>
                         </View>
                     </View>
                 )}
@@ -314,6 +316,7 @@ const CreateMarketplaceItemScreen = ({ navigation }: any) => {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* MODALES DE UBICACIÓN... */}
       <Modal visible={showRegionModal} transparent animationType="slide">
           <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
@@ -377,13 +380,15 @@ const styles = StyleSheet.create({
   priceInputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', borderRadius: 12, borderWidth: 1, borderColor: '#E0E0E0', paddingHorizontal: 15 },
   currencySymbol: { fontSize: 24, fontFamily: FONTS.bold, color: COLORS.textDark, marginRight: 10 },
   inputPrice: { flex: 1, paddingVertical: 15, fontSize: 24, fontFamily: FONTS.bold, color: COLORS.textDark },
-  feeSummaryBox: { marginTop: 15, backgroundColor: '#F0F8FF', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#D0E3F5' },
+  
+  // 🔥 ESTILOS NUEVOS DE TARIFAS
+  feeSummaryBox: { marginTop: 15, backgroundColor: '#F4F6F8', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' },
   feeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
   feeLabel: { fontFamily: FONTS.regular, color: COLORS.textLight, fontSize: 14 },
   feeValue: { fontFamily: FONTS.semiBold, color: COLORS.textDark, fontSize: 14 },
-  feeValueRed: { fontFamily: FONTS.semiBold, color: COLORS.danger, fontSize: 14 },
-  feeTotalLabel: { fontFamily: FONTS.bold, color: COLORS.textDark, fontSize: 16 },
-  feeTotalValue: { fontFamily: FONTS.bold, color: COLORS.primary, fontSize: 18 },
+  infoAlertBox: { flexDirection: 'row', backgroundColor: '#E3F2FD', padding: 10, borderRadius: 8, marginTop: 12, alignItems: 'flex-start' },
+  infoAlertText: { flex: 1, fontSize: 12, color: '#1565C0', fontFamily: FONTS.regular, lineHeight: 18 },
+
   btnPrimary: { backgroundColor: COLORS.primary, padding: 18, borderRadius: 16, alignItems: 'center', marginTop: 10, marginBottom: 40, ...SHADOWS.card },
   btnText: { color: COLORS.white, fontFamily: FONTS.bold, fontSize: 16 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
