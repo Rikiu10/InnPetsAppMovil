@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Modal, Alert 
+  View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Modal, Alert, Image
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -69,22 +69,21 @@ const AdoptionsScreen = ({ navigation }: any) => {
     }
   };
 
-  // 3. LÓGICA DE ROLES (ACTUALIZADA CON REGLAS DEL PROFESOR)
+  // 3. LÓGICA DE ROLES
   const handleSetRole = async (roleType: string) => {
-    // REGLA: Fundaciones requieren aprobación del Admin
     if (roleType === 'FOUNDATION') {
         Alert.alert(
             "Aprobación Requerida 🏢",
-            "Para registrar tu fundación y acceder al directorio de casas de acogida, un administrador debe verificar tus datos.\n\n¿Deseas abrir un ticket de soporte para iniciar el proceso?",
+            "Para registrar tu fundación y acceder al directorio de casas de acogida, un administrador debe verificar tus datos.\n\n¿Deseas iniciar el proceso?",
             [
                 { text: "Cancelar", style: "cancel" },
-                { text: "Contactar Soporte", onPress: () => {
+                { text: "Postular Fundación", onPress: () => {
                     setShowRoleModal(false);
-                    navigation.navigate('CreateTicket');
+                    navigation.navigate('ApplyFoundation');
                 }}
             ]
         );
-        return; // Detenemos la ejecución aquí, no se guarda automáticamente.
+        return; 
     }
 
     setSettingRole(true);
@@ -95,7 +94,7 @@ const AdoptionsScreen = ({ navigation }: any) => {
       if (refreshUser) await refreshUser(); 
       
       setShowRoleModal(false);
-      Alert.alert("¡Excelente!", "Tu perfil ha sido configurado. Recuerda que puedes modificarlo más adelante en los ajustes.");
+      Alert.alert("¡Excelente!", "Tu perfil ha sido configurado.");
       
     } catch (error) {
       Alert.alert("Error", "No se pudo guardar tu preferencia.");
@@ -108,7 +107,7 @@ const AdoptionsScreen = ({ navigation }: any) => {
   const handleContactAdoption = async (postId: number, animalName: string) => {
       setCreatingChat(true);
       try {
-          const res = await api.post('/chat/create_adoption_chat/', { post_id: postId });
+          const res = await api.post('/chat/create-adoption-chat/', { post_id: postId });
           navigation.navigate('ChatDetail', { 
               roomId: res.data.room_id, 
               partnerName: `Adopción: ${animalName}`,
@@ -126,21 +125,46 @@ const AdoptionsScreen = ({ navigation }: any) => {
   const renderPet = ({ item }: any) => {
       const animalName = item.temp_name || item.pet?.name || 'Perrito Rescatado';
       const isMyPost = item.publisher === user?.id; 
+      
+      const imageUrl = item.photos_url && item.photos_url.length > 0 
+          ? item.photos_url[0] 
+          : 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=800&q=80';
 
       return (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{animalName}</Text>
-          <Text style={styles.cardSubtitle}>Estado: {item.status}</Text>
+        <View style={styles.petCard}>
+          <Image source={{ uri: imageUrl }} style={styles.petImage} resizeMode="cover" />
           
-          {!isMyPost && (
-              <TouchableOpacity 
-                  style={styles.contactBtn} 
-                  onPress={() => handleContactAdoption(item.id, animalName)}
-                  disabled={creatingChat}
-              >
-                  <Text style={styles.contactBtnText}>💬 Contactar</Text>
-              </TouchableOpacity>
-          )}
+          <View style={styles.petContent}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+                  <Text style={styles.cardTitle}>{animalName}</Text>
+                  
+                  {/* 🔥 MAGIA VISUAL: Si no está aprobado, mostramos "En Revisión" */}
+                  {!item.is_approved ? (
+                      <View style={[styles.statusBadge, { backgroundColor: '#FFF3E0' }]}>
+                          <Text style={[styles.statusText, { color: '#FF9800' }]}>⏳ En Revisión</Text>
+                      </View>
+                  ) : (
+                      <View style={styles.statusBadge}>
+                          <Text style={styles.statusText}>{item.status_display || item.status}</Text>
+                      </View>
+                  )}
+              </View>
+
+              <Text style={styles.locationText}>
+                  <Ionicons name="location-outline" size={14} color="#666" /> {item.commune_name || 'Ubicación no especificada'}
+              </Text>
+              
+              {/* Solo permite contactar si NO es mi post y SI ya está aprobado */}
+              {!isMyPost && item.is_approved && (
+                  <TouchableOpacity 
+                      style={styles.contactBtn} 
+                      onPress={() => handleContactAdoption(item.id, animalName)}
+                      disabled={creatingChat}
+                  >
+                      <Text style={styles.contactBtnText}>💬 Contactar</Text>
+                  </TouchableOpacity>
+              )}
+          </View>
         </View>
       );
   };
@@ -176,7 +200,6 @@ const AdoptionsScreen = ({ navigation }: any) => {
         
         <Text style={styles.headerTitle}>Adopciones y Rescate</Text>
         
-        {/* BOTÓN PARA ABRIR EL MODAL DE ROLES MANUALMENTE */}
         <TouchableOpacity onPress={() => setShowRoleModal(true)} style={{padding: 5}}>
           <Ionicons name="settings-outline" size={24} color={COLORS.primary} />
         </TouchableOpacity>
@@ -192,7 +215,6 @@ const AdoptionsScreen = ({ navigation }: any) => {
           <Text style={[styles.tabText, activeTab === 'FOUNDATIONS' && styles.activeTabText]}>Fundaciones</Text>
         </TouchableOpacity>
 
-        {/* PESTAÑA SECRETA */}
         {user?.foundation && (
             <TouchableOpacity style={[styles.tab, activeTab === 'FOSTERS' && styles.activeTab]} onPress={() => setActiveTab('FOSTERS')}>
               <Text style={[styles.tabText, activeTab === 'FOSTERS' && styles.activeTabText]}>Acogidas 🔒</Text>
@@ -213,17 +235,24 @@ const AdoptionsScreen = ({ navigation }: any) => {
         />
       )}
 
+      {/* BOTÓN FLOTANTE */}
+      {activeTab === 'PETS' && (
+          <TouchableOpacity 
+              style={styles.fab}
+              onPress={() => navigation.navigate('CreateAdoptionPost')}
+          >
+              <Ionicons name="add" size={35} color="#FFF" />
+          </TouchableOpacity>
+      )}
+
       {/* MODAL DE ONBOARDING */}
       <Modal visible={showRoleModal && isFocused} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             
-            {/* BOTÓN PARA CERRAR EL MODAL */}
             <TouchableOpacity 
                 style={styles.closeModalBtn} 
-                onPress={() => {
-                    setShowRoleModal(false);
-                }}
+                onPress={() => setShowRoleModal(false)}
             >
                 <Ionicons name="close-circle" size={30} color="#ccc" />
             </TouchableOpacity>
@@ -264,7 +293,6 @@ const AdoptionsScreen = ({ navigation }: any) => {
   );
 };
 
-// --- ESTILOS ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, backgroundColor: COLORS.white, elevation: 2, shadowColor: '#000', shadowOffset: {width:0,height:1}, shadowOpacity:0.1, shadowRadius:2 },
@@ -284,14 +312,20 @@ const styles = StyleSheet.create({
   contactBtn: { marginTop: 15, backgroundColor: '#FF9800', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
   contactBtnText: { color: '#FFF', fontFamily: FONTS.bold, fontSize: 14 },
 
+  petCard: { backgroundColor: COLORS.white, borderRadius: 16, marginBottom: 20, overflow: 'hidden', elevation: 3, shadowColor: '#000', shadowOffset: {width:0,height:2}, shadowOpacity:0.15, shadowRadius:4 },
+  petImage: { width: '100%', height: 220, backgroundColor: '#EAEAEA' },
+  petContent: { padding: 15 },
+  statusBadge: { backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
+  statusText: { color: '#1565C0', fontSize: 12, fontFamily: FONTS.bold },
+  locationText: { color: '#666', fontSize: 13, marginTop: 8, marginBottom: 10, fontFamily: FONTS.regular },
+
+  fab: { position: 'absolute', bottom: 30, right: 20, backgroundColor: '#FF9800', width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', elevation: 5, shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.3, shadowRadius: 3 },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#FFF', borderRadius: 20, padding: 25, paddingTop: 40, ...SHADOWS.card },
-  
   closeModalBtn: { position: 'absolute', top: 12, right: 12, zIndex: 10 },
-  
   modalTitle: { fontSize: 20, fontFamily: FONTS.bold, textAlign: 'center', color: COLORS.textDark, marginBottom: 10 },
   modalSubtitle: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 25 },
-  
   roleBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 15, borderRadius: 15, marginBottom: 15, borderWidth: 1, borderColor: '#EEE' },
   iconBox: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   roleBtnTitle: { fontSize: 16, fontFamily: FONTS.bold, color: '#333' },

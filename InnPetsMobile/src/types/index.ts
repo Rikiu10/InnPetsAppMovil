@@ -98,4 +98,6 @@ export type RootStackParamList = {
   VerifyOTP: { email: string };
   ResubmitID: { email: string; motivo: string }; // 🔥 NUEVO
   Adoptions: undefined;
+  ApplyFoundation: undefined;
+  CreateAdoptionPost: undefined;
 };
